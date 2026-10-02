@@ -1,0 +1,48 @@
+/* Styles personnalisés pour la cartographie Leaflet */
+.custom-marker {
+  background: transparent !important;
+  border: none !important;
+}
+
+.leaflet-popup-content-wrapper {
+  border-radius: 2px;
+  font-family: 'Inter', sans-serif;
+}
+
+.leaflet-popup-content {
+  margin: 0;
+}
+
+.leaflet-container {
+  font-family: 'Inter', sans-serif;
+}
+
+/* Styles pour l'impression des avis d'imposition */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  
+  .print\:hidden,
+  .print\:hidden * {
+    display: none !important;
+  }
+  
+  #root,
+  #root * {
+    visibility: visible;
+  }
+  
+  /* Assurer que l'avis soit bien visible à l'impression */
+  [ref] {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+  
+  @page {
+    size: A4;
+    margin: 1cm;
+  }
+}

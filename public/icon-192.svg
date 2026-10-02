@@ -1,0 +1,14 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='192' height='192' viewBox='0 0 192 192'>
+  <rect width='192' height='192' rx='38.400000000000006' fill='#1B3A6B'/>
+  <!-- Flag stripes -->
+  <rect x='19.200000000000003' y='138.24' width='48' height='34.56' fill='#CE1126'/>
+  <rect x='72' y='138.24' width='48' height='34.56' fill='#FCD116'/>
+  <rect x='124.80000000000001' y='138.24' width='48' height='34.56' fill='#009460'/>
+  <!-- Building icon -->
+  <rect x='57.599999999999994' y='53.760000000000005' width='76.80000000000001' height='80.64' fill='none' stroke='white' stroke-width='7.68' rx='3.84'/>
+  <rect x='80.64' y='86.4' width='30.72' height='48' fill='white' opacity='0.9'/>
+  <!-- Roof -->
+  <polygon points='42.24,53.760000000000005 96,19.200000000000003 149.76,53.760000000000005' fill='none' stroke='white' stroke-width='7.68' stroke-linejoin='round'/>
+  <!-- Text: SNRR -->
+  <text x='96' y='130.56' text-anchor='middle' font-family='monospace' font-weight='bold' font-size='19.200000000000003' fill='white' opacity='0.9'>SNRR</text>
+</svg>
