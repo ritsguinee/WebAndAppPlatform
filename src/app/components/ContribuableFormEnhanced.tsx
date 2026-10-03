@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
   ChevronRight, ChevronLeft, Save, MapPin, User, Home, Calculator,
   CheckCircle2, Camera, Upload, X, Navigation, Loader2, Video, VideoOff, AlertTriangle,
@@ -36,10 +36,20 @@ interface Contribuable {
 interface District { nom: string; secteurs: string[]; }
 interface Commune { nom: string; districts: District[]; }
 
+export interface CommuneConfig {
+  code: string;
+  communeName: string;
+  communes: Commune[];
+  sousPrefectures: string[];
+  spStats: Record<string, any>;
+  quartierColors: Record<string, string>;
+  agents: string[];
+}
+
 // Helper: generate secteurs with district initial prefix
 const sect = (prefix: string, n = 5) => Array.from({ length: n }, (_, i) => `${prefix}-S${i + 1}`);
 
-const COMMUNES: Commune[] = [
+const COMMUNES_MAMOU: Commune[] = [
   {
     nom: "Commune Urbaine de Mamou",
     districts: [
@@ -101,17 +111,7 @@ const COMMUNES: Commune[] = [
       { nom: "Bhouria", secteurs: sect("BH") },
       { nom: "Dar es Salam", secteurs: sect("DS") },
       { nom: "Kolissoko", secteurs: sect("KL") },
-      {
-        nom: "Sankarela",
-        secteurs: [
-          "Sankarela Centre",
-          "Ley-Bowal",
-          "Fello",
-          "Horé Bowal",
-          "Kolla",
-          "Donghol Marga",
-        ],
-      },
+      { nom: "Sankarela", secteurs: ["Sankarela Centre", "Ley-Bowal", "Fello", "Horé Bowal", "Kolla", "Donghol Marga"] },
     ],
   },
   {
@@ -186,19 +186,30 @@ const STEP_CONFIG = [
 ];
 
 export function ContribuableFormEnhanced({
-  initial, onSave, onClose,
+  initial, onSave, onClose, communeConfig,
 }: {
   initial?: Partial<Contribuable>;
   onSave: (c: Contribuable) => void;
   onClose: () => void;
+  communeConfig?: CommuneConfig;
 }) {
+  const COMMUNES = useMemo<Commune[]>(() => {
+    if (!communeConfig) return COMMUNES_MAMOU;
+    return communeConfig.communes;
+  }, [communeConfig]);
+
+  const communeCode = communeConfig?.code ?? "MOU";
+  const defaultCommune = COMMUNES[0]?.nom ?? "Commune Urbaine de Mamou";
+  const defaultDistrict = COMMUNES[0]?.districts[0]?.nom ?? "Centre-ville";
+  const defaultSecteur = COMMUNES[0]?.districts[0]?.secteurs[0] ?? "Secteur 1 — Marché Central";
+
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<Partial<Contribuable>>({
     nom: "", prenom: "", telephone: "", email: "", nin: "",
-    commune: "Commune Urbaine de Mamou",
-    district: "Centre-ville",
-    quartier: "Centre-ville",
-    secteur: "Secteur 1 — Marché Central",
+    commune: defaultCommune,
+    district: defaultDistrict,
+    quartier: defaultDistrict,
+    secteur: defaultSecteur,
     adresseContribuable: "", localisationActivite: "", coordGps: "",
     type: "Résidentiel", usage: "Habitation principale",
     surface: 0, categorie: "B",
@@ -474,7 +485,7 @@ export function ContribuableFormEnhanced({
   const handleSave = () => {
     if (totalPct !== 100) { alert(`Les pourcentages doivent totaliser 100% (actuellement ${totalPct}%)`); return; }
     const c: Contribuable = {
-      id: initial?.id ?? `MOU-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 90000) + 10000)}`,
+      id: initial?.id ?? `${communeCode}-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 90000) + 10000)}`,
       nom: form.nom!, prenom: form.prenom!, telephone: form.telephone!, email: form.email,
       nin: form.nin ?? "", commune: form.commune!, district: form.district!,
       quartier: form.district!, secteur: form.secteur!,

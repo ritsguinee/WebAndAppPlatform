@@ -25,6 +25,7 @@ export default defineConfig({
     tailwindcss(),
     basicSsl(),
     VitePWA({
+      disable: true,
       registerType: 'autoUpdate',
       injectRegister: 'script',
       manifest: {
@@ -44,7 +45,7 @@ export default defineConfig({
         lang: 'fr',
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        globPatterns: ['**/*.{js,html,ico,png,svg,woff2}'],
         runtimeCaching: [
           {
             // OSM tiles — network-first, fallback cached
@@ -68,7 +69,7 @@ export default defineConfig({
           },
         ],
       },
-      devOptions: { enabled: true, type: 'module' },
+      devOptions: { enabled: false },
     }),
   ],
   resolve: {

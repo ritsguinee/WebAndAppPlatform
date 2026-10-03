@@ -38,7 +38,8 @@ type ModalType =
   | null
   | "new-contribuable" | "edit-contribuable" | "view-contribuable" | "qr-code" | "delete-contribuable"
   | "new-paiement" | "view-paiement" | "orange-money-payment"
-  | "new-user" | "edit-user" | "view-user" | "delete-user"
+  | "new-user" | "edit-user" | "view-user-detail" | "delete-user"
+  | "reset-password" | "configure-access"
   | "new-taxe" | "edit-taxe" | "simulation-fiscale" | "avis-imposition"
   | "confirm-delete";
 
@@ -102,6 +103,8 @@ interface Utilisateur {
   id: string; nom: string; prenom: string; role: string; email: string;
   telephone: string; derniere: string; statut: string; dateCreation: string;
   identifiant?: string;
+  permissions?: string[];
+  motDePasseReset?: boolean;
 }
 
 interface Taxe {
@@ -179,11 +182,13 @@ const RECETTES_DEFAULT: RecetteMois[] = [
 const OBJECTIFS_DEFAULT: ObjectifsFiscaux = { cfu:250000000, patentes:160000000, marches:60000000, autres:40000000 };
 
 const EXERCICE_KEY = "snrr_exercice_recettes";
-function loadExercice(): ExerciceStore {
-  try { const r = localStorage.getItem(EXERCICE_KEY); if (r) return JSON.parse(r); } catch {}
+function loadExerciceFor(key: string): ExerciceStore {
+  try { const r = localStorage.getItem(key); if (r) return JSON.parse(r); } catch {}
   return { "2024": { mois: RECETTES_DEFAULT, objectifs: OBJECTIFS_DEFAULT } };
 }
-function saveExercice(d: ExerciceStore) { localStorage.setItem(EXERCICE_KEY, JSON.stringify(d)); }
+function loadExercice(): ExerciceStore { return loadExerciceFor(EXERCICE_KEY); }
+function saveExerciceFor(key: string, d: ExerciceStore) { localStorage.setItem(key, JSON.stringify(d)); }
+function saveExercice(d: ExerciceStore) { saveExerciceFor(EXERCICE_KEY, d); }
 
 // ─── Audit log ────────────────────────────────────────────────────────────────
 type AuditEntry = { id: string; action: string; user: string; ip: string; date: string; type: "info" | "warning" | "error" };
@@ -198,11 +203,13 @@ const AUDIT_SEED: AuditEntry[] = [
   { id: "as6", action: "Nouveau recensement MOU-2024-00149", user: "Ibrahima Sow", ip: "196.28.14.33", date: "2024-06-14 14:02:55", type: "info" },
   { id: "as7", action: "Modification du profil USR-005", user: "Alpha C. Soumah", ip: "196.28.14.22", date: "2024-06-13 11:30:00", type: "warning" },
 ];
-function loadAudit(): AuditEntry[] {
-  try { const r = localStorage.getItem(AUDIT_KEY); if (r) return JSON.parse(r); } catch {}
+function loadAuditFor(key: string): AuditEntry[] {
+  try { const r = localStorage.getItem(key); if (r) return JSON.parse(r); } catch {}
   return AUDIT_SEED;
 }
-function saveAudit(logs: AuditEntry[]) { localStorage.setItem(AUDIT_KEY, JSON.stringify(logs.slice(0, 500))); }
+function loadAudit(): AuditEntry[] { return loadAuditFor(AUDIT_KEY); }
+function saveAuditFor(key: string, logs: AuditEntry[]) { localStorage.setItem(key, JSON.stringify(logs.slice(0, 500))); }
+function saveAudit(logs: AuditEntry[]) { saveAuditFor(AUDIT_KEY, logs); }
 
 // backward-compat alias used by chart code that still references recettesMonthly
 const recettesMonthly = RECETTES_DEFAULT;
@@ -330,6 +337,699 @@ const AGENTS_RECENSEURS = [
   "Tous les agents", "I. Sow", "S. Barry", "F. Diallo", "M. Kouyaté", "H. Barry", "A. Camara", "B. Diallo",
 ];
 
+// ─── Commune geographic config ─────────────────────────────────────────────────
+export interface CommuneConfig {
+  code: string; // 3-letter prefix for IDs e.g. "MOU", "KIN"
+  communeName: string;
+  communes: Array<{ nom: string; districts: Array<{ nom: string; secteurs: string[]; lat?: number; lng?: number }> }>;
+  sousPrefectures: string[];
+  spStats: Record<string, { label: string; contribuables: number; taux: number; recettes: number; arriere: number; districts: Record<string, { contribuables: number; taux: number; recettes: number; secteurs: string[] }> }>;
+  quartierColors: Record<string, string>;
+  agents: string[];
+  mapCenter?: { lat: number; lng: number; zoom?: number };
+}
+
+// Seeded random for deterministic fake data per commune
+function seededRand(seed: string, idx: number): number {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (Math.imul(31, h) + seed.charCodeAt(i)) | 0;
+  h = (Math.imul(h, idx + 1) ^ (h >>> 16)) | 0;
+  return Math.abs(h % 1000) / 1000;
+}
+
+// ─── Real Guinea administrative geography ─────────────────────────────────────
+// Sources: découpages administratifs officiels de la République de Guinée
+interface GeoData {
+  nom: string;                                              // official full name of the main entity
+  districts: { nom: string; secteurs: string[] }[];        // quartiers of the main commune urbaine
+  sousPrefectures?: string[];                              // sous-préfectures (for prefectures)
+}
+
+const s = (pfx: string, n: number) => Array.from({ length: n }, (_, i) => `${pfx}-S${i + 1}`);
+
+const GUINEA_GEO: Record<string, GeoData> = {
+  // ── CONAKRY ──────────────────────────────────────────────────────────────────
+  "conakry-kaloum": {
+    nom: "Commune de Kaloum",
+    districts: [
+      { nom: "Almamya",   secteurs: ["Almamya-S1", "Almamya-S2", "Almamya-S3", "Almamya-S4"] },
+      { nom: "Boulbinet", secteurs: ["Boulbinet-S1", "Boulbinet-S2", "Boulbinet-S3"] },
+      { nom: "Coronthie", secteurs: ["Coronthie-S1", "Coronthie-S2", "Coronthie-S3", "Coronthie-S4", "Coronthie-S5"] },
+      { nom: "Kaloum",    secteurs: ["Kaloum-S1", "Kaloum-S2", "Kaloum-S3"] },
+      { nom: "Tombo",     secteurs: ["Tombo-S1", "Tombo-S2", "Tombo-S3", "Tombo-S4"] },
+    ],
+  },
+  "conakry-dixinn": {
+    nom: "Commune de Dixinn",
+    districts: [
+      { nom: "Camayenne",        secteurs: s("CAM", 4) },
+      { nom: "Dixinn-Centre",    secteurs: s("DC",  3) },
+      { nom: "Dixinn-Mosquée",   secteurs: s("DM",  2) },
+      { nom: "Landréah",         secteurs: s("LND", 3) },
+      { nom: "Minière",          secteurs: s("MIN", 2) },
+      { nom: "Belle-Vue",        secteurs: s("BV",  2) },
+    ],
+  },
+  "conakry-ratoma": {
+    nom: "Commune de Ratoma",
+    districts: [
+      { nom: "Bambeto",    secteurs: s("BAM", 5) },
+      { nom: "Cosa",       secteurs: s("COS", 4) },
+      { nom: "Kaporo",     secteurs: s("KAP", 3) },
+      { nom: "Kobaya",     secteurs: s("KOB", 3) },
+      { nom: "Koloma",     secteurs: s("KOL", 3) },
+      { nom: "Lambandji",  secteurs: s("LAM", 3) },
+      { nom: "Nongo",      secteurs: s("NON", 4) },
+      { nom: "Ratoma",     secteurs: s("RAT", 4) },
+      { nom: "Simbaya",    secteurs: s("SIM", 5) },
+      { nom: "Wanindara",  secteurs: s("WAN", 5) },
+    ],
+  },
+  "conakry-matam": {
+    nom: "Commune de Matam",
+    districts: [
+      { nom: "Dabondy",    secteurs: s("DAB", 3) },
+      { nom: "Enco-5",     secteurs: s("EN5", 2) },
+      { nom: "Hamdallaye", secteurs: s("HAM", 4) },
+      { nom: "Madina",     secteurs: s("MAD", 5) },
+      { nom: "Matam",      secteurs: s("MAT", 3) },
+      { nom: "Taouyah",    secteurs: s("TAO", 4) },
+    ],
+  },
+  "conakry-matoto": {
+    nom: "Commune de Matoto",
+    districts: [
+      { nom: "Kagbelen",   secteurs: s("KAG", 3) },
+      { nom: "Kissosso",   secteurs: s("KIS", 3) },
+      { nom: "Kobayah",    secteurs: s("KBY", 3) },
+      { nom: "Mansanyi",   secteurs: s("MAN", 3) },
+      { nom: "Matoto",     secteurs: s("MTO", 4) },
+      { nom: "Sonfonia",   secteurs: s("SON", 5) },
+      { nom: "Yimbaya",    secteurs: s("YIM", 4) },
+    ],
+  },
+
+  // ── RÉGION DE KINDIA ─────────────────────────────────────────────────────────
+  "kindia-cu": {
+    nom: "Commune Urbaine de Kindia",
+    districts: [
+      { nom: "Centre-ville",  secteurs: ["Marché", "Mairie", "Mosquée", "Préfecture"] },
+      { nom: "Kouria",        secteurs: s("KOU", 3) },
+      { nom: "Sangoyah",      secteurs: s("SAN", 3) },
+      { nom: "Tinsou",        secteurs: s("TIN", 2) },
+      { nom: "Mambia",        secteurs: s("MAM", 2) },
+      { nom: "Gbèrè",         secteurs: s("GBE", 3) },
+    ],
+    sousPrefectures: [],
+  },
+  "kindia": {
+    nom: "Préfecture de Kindia",
+    districts: [
+      { nom: "Kindia-Centre", secteurs: ["Marché", "Mairie", "Gare"] },
+      { nom: "Kouria",        secteurs: s("KOU", 3) },
+      { nom: "Sangoyah",      secteurs: s("SAN", 2) },
+    ],
+    sousPrefectures: ["Kindia (CU)", "Bangouya", "Damakania", "Friguiagbé", "Kolenté", "Molota", "Souguéta", "Yambéring"],
+  },
+  "coyah": {
+    nom: "Préfecture de Coyah",
+    districts: [
+      { nom: "Coyah-Centre",  secteurs: s("CC", 4) },
+      { nom: "Coyah-Sud",     secteurs: s("CS", 3) },
+    ],
+    sousPrefectures: ["Coyah (CU)", "Manéah", "Maneya", "Ouassou", "Wonkifong"],
+  },
+  "dubreka": {
+    nom: "Préfecture de Dubréka",
+    districts: [
+      { nom: "Dubréka-Centre", secteurs: s("DC", 3) },
+      { nom: "Dubréka-Côte",   secteurs: s("DCO", 2) },
+    ],
+    sousPrefectures: ["Dubréka (CU)", "Benty", "Khorira", "Koba", "Tanéné"],
+  },
+  "forecariah": {
+    nom: "Préfecture de Forécariah",
+    districts: [
+      { nom: "Forécariah-Centre", secteurs: s("FC", 3) },
+      { nom: "Forécariah-Côte",   secteurs: s("FCO", 2) },
+    ],
+    sousPrefectures: ["Forécariah (CU)", "Farmoréah", "Kakossa", "Kaback", "Maférinya", "Moussayah", "N'Dema", "Tougnifily"],
+  },
+  "telimele": {
+    nom: "Préfecture de Télimélé",
+    districts: [
+      { nom: "Télimélé-Centre", secteurs: s("TC", 3) },
+      { nom: "Télimélé-Nord",   secteurs: s("TN", 2) },
+    ],
+    sousPrefectures: ["Télimélé (CU)", "Bourouwal-Tapé", "Daramagnaki", "Fello-Koundoua", "Gongoré", "Kitinian", "Missira-Donghol", "Santou", "Thionthian"],
+  },
+
+  // ── RÉGION DE BOKÉ ───────────────────────────────────────────────────────────
+  "boke-cu": {
+    nom: "Commune Urbaine de Boké",
+    districts: [
+      { nom: "Centre-ville",   secteurs: ["Marché", "Port", "Mairie", "Mosquée"] },
+      { nom: "Kolaboui",       secteurs: s("KOL", 3) },
+      { nom: "Sangarédi-Route",secteurs: s("SAN", 2) },
+      { nom: "Hafia",          secteurs: s("HAF", 2) },
+      { nom: "Gbantama",       secteurs: s("GBA", 2) },
+    ],
+  },
+  "boke": {
+    nom: "Préfecture de Boké",
+    districts: [
+      { nom: "Boké-Centre",    secteurs: ["Marché", "Port", "Mairie"] },
+      { nom: "Boké-Nord",      secteurs: s("BN", 3) },
+    ],
+    sousPrefectures: ["Boké (CU)", "Kamsar", "Sangarédi", "Tanéné", "Tougnifily-Boké"],
+  },
+  "boffa": {
+    nom: "Préfecture de Boffa",
+    districts: [
+      { nom: "Boffa-Centre",   secteurs: s("BFC", 3) },
+      { nom: "Boffa-Côte",     secteurs: s("BFCO", 2) },
+    ],
+    sousPrefectures: ["Boffa (CU)", "Boundou-Waadou", "Douprou", "Koba", "Mankountan", "Tamita"],
+  },
+  "fria": {
+    nom: "Commune Urbaine de Fria",
+    districts: [
+      { nom: "Fria-Centre",    secteurs: ["Cité Alumine", "Marché", "Mairie", "Mosquée"] },
+      { nom: "Fria-Ville",     secteurs: s("FV", 3) },
+      { nom: "Yomboyali",      secteurs: s("YOM", 2) },
+      { nom: "Boffa-Route",    secteurs: s("BR", 2) },
+    ],
+  },
+  "gaoual": {
+    nom: "Préfecture de Gaoual",
+    districts: [
+      { nom: "Gaoual-Centre",  secteurs: s("GC", 3) },
+      { nom: "Gaoual-Nord",    secteurs: s("GN", 2) },
+    ],
+    sousPrefectures: ["Gaoual (CU)", "Foulamory", "Hidayatou", "Kakoni", "Touba"],
+  },
+  "koundara": {
+    nom: "Préfecture de Koundara",
+    districts: [
+      { nom: "Koundara-Centre", secteurs: s("KC", 3) },
+      { nom: "Koundara-Nord",   secteurs: s("KN", 2) },
+    ],
+    sousPrefectures: ["Koundara (CU)", "Bagata", "Guingan", "Termessé", "Youkounkoun"],
+  },
+
+  // ── RÉGION DE MAMOU ──────────────────────────────────────────────────────────
+  "mamou-cu": {
+    nom: "Commune Urbaine de Mamou",
+    districts: [
+      { nom: "Centre-ville",  secteurs: ["Secteur 1 — Marché Central", "Secteur 2 — Mairie", "Secteur 3 — Mosquée Centrale", "Secteur 4 — Gare Routière"] },
+      { nom: "Sikhourou",     secteurs: ["SK-S1", "SK-S2", "SK-S3", "SK-S4", "SK-S5"] },
+      { nom: "Gongoré",       secteurs: ["GN-S1", "GN-S2", "GN-S3", "GN-S4", "GN-S5"] },
+      { nom: "Donghol Touma", secteurs: ["DT-S1", "DT-S2", "DT-S3", "DT-S4", "DT-S5"] },
+      { nom: "Saré Koura",    secteurs: ["SA-S1", "SA-S2", "SA-S3", "SA-S4", "SA-S5"] },
+      { nom: "Porédaka (Urbain)", secteurs: s("PU", 5) },
+      { nom: "Téguéréya (Urbain)",secteurs: s("TU", 5) },
+      { nom: "Tountouroun",   secteurs: s("TO", 4) },
+      { nom: "Pelel",         secteurs: s("PE", 3) },
+    ],
+    sousPrefectures: [],
+  },
+  "mamou": {
+    nom: "Préfecture de Mamou",
+    districts: [
+      { nom: "Centre-ville",  secteurs: ["Marché Central", "Mairie", "Mosquée Centrale", "Gare Routière"] },
+      { nom: "Sikhourou",     secteurs: s("SK", 4) },
+      { nom: "Gongoré",       secteurs: s("GN", 4) },
+    ],
+    sousPrefectures: ["Mamou (CU)", "Bouliwel", "Dounet", "Gongoret", "Kegneko", "Konkouré", "Nyagara", "Ouré-Kaba", "Porédaka", "Saramoussaya", "Soyah", "Téguéréya", "Tolo"],
+  },
+  "dalaba": {
+    nom: "Préfecture de Dalaba",
+    districts: [
+      { nom: "Dalaba-Centre",  secteurs: ["Marché", "Mairie", "Mosquée", "École"] },
+      { nom: "Dalaba-Plateau", secteurs: s("DP", 3) },
+    ],
+    sousPrefectures: ["Dalaba (CU)", "Ditinn", "Kaala", "Mombéya", "Santou-Dalaba"],
+  },
+  "pita": {
+    nom: "Préfecture de Pita",
+    districts: [
+      { nom: "Pita-Centre",     secteurs: ["Marché", "Mairie", "Mosquée", "Gare"] },
+      { nom: "Pita-Plateau",    secteurs: s("PP", 3) },
+    ],
+    sousPrefectures: ["Pita (CU)", "Bourouwal", "Dongol-Touma", "Gongoré-Pita", "Maci", "Mitty", "Ouré-Pita", "Pelel", "Timbi-Madina", "Timbi-Touni", "Tountouroun-Pita"],
+  },
+
+  // ── RÉGION DE LABÉ ───────────────────────────────────────────────────────────
+  "labe-cu": {
+    nom: "Commune Urbaine de Labé",
+    districts: [
+      { nom: "Labé-Centre",   secteurs: ["Marché", "Mairie", "Mosquée Centrale", "Préfecture"] },
+      { nom: "Tata",          secteurs: s("TAT", 3) },
+      { nom: "Diari-Ville",   secteurs: s("DV", 3) },
+      { nom: "Pellel-Daka",   secteurs: s("PD", 2) },
+      { nom: "Hafia",         secteurs: s("HAF", 2) },
+      { nom: "Koïn",          secteurs: s("KON", 2) },
+    ],
+  },
+  "labe": {
+    nom: "Préfecture de Labé",
+    districts: [
+      { nom: "Labé-Centre",   secteurs: ["Marché", "Mairie", "Mosquée"] },
+      { nom: "Tata",          secteurs: s("TAT", 3) },
+    ],
+    sousPrefectures: ["Labé (CU)", "Diari", "Hafia", "Kaalan", "Lébékéré", "Noussy", "Popodara", "Tountouroun-Labé"],
+  },
+  "koubia": {
+    nom: "Préfecture de Koubia",
+    districts: [
+      { nom: "Koubia-Centre",  secteurs: s("KC", 3) },
+      { nom: "Koubia-Plateau", secteurs: s("KP", 2) },
+    ],
+    sousPrefectures: ["Koubia (CU)", "Fello-Bayla", "Gallah", "Koïn-Koubia"],
+  },
+  "lelouma": {
+    nom: "Préfecture de Lélouma",
+    districts: [
+      { nom: "Lélouma-Centre", secteurs: s("LC", 3) },
+      { nom: "Lélouma-Est",    secteurs: s("LE", 2) },
+    ],
+    sousPrefectures: ["Lélouma (CU)", "Diari-Lélouma", "Gadha-Woundou", "Maci-Lélouma", "Parawol", "Salambandé", "Tangaly-Lélouma"],
+  },
+  "mali": {
+    nom: "Préfecture de Mali",
+    districts: [
+      { nom: "Mali-Centre",    secteurs: s("MC", 3) },
+      { nom: "Mali-Nord",      secteurs: s("MN", 2) },
+    ],
+    sousPrefectures: ["Mali (CU)", "Féou", "Hidayatou-Mali", "Madina-Woula", "Touba-Mali", "Yembéring"],
+  },
+  "tougue": {
+    nom: "Préfecture de Tougué",
+    districts: [
+      { nom: "Tougué-Centre",  secteurs: s("TC", 3) },
+      { nom: "Tougué-Nord",    secteurs: s("TN", 2) },
+    ],
+    sousPrefectures: ["Tougué (CU)", "Bourouwal-Tougué", "Gaps", "Kalinko", "Kollet", "Leffa-Mafara"],
+  },
+
+  // ── RÉGION DE FARANAH ────────────────────────────────────────────────────────
+  "faranah-cu": {
+    nom: "Commune Urbaine de Faranah",
+    districts: [
+      { nom: "Faranah-Centre",  secteurs: ["Marché", "Mairie", "Gare-Fluviale", "Mosquée"] },
+      { nom: "Farako",          secteurs: s("FAR", 3) },
+      { nom: "Passaya",         secteurs: s("PAS", 2) },
+      { nom: "Senko",           secteurs: s("SEN", 2) },
+    ],
+  },
+  "faranah": {
+    nom: "Préfecture de Faranah",
+    districts: [
+      { nom: "Faranah-Centre",  secteurs: ["Marché", "Mairie", "Gare"] },
+      { nom: "Faranah-Fleuve",  secteurs: s("FF", 2) },
+    ],
+    sousPrefectures: ["Faranah (CU)", "Banian", "Bissikrima", "Gnama", "Marela", "Passaya", "Sandenia", "Tiro"],
+  },
+  "dabola": {
+    nom: "Préfecture de Dabola",
+    districts: [
+      { nom: "Dabola-Centre",   secteurs: s("DC", 3) },
+      { nom: "Dabola-Plateau",  secteurs: s("DP", 2) },
+    ],
+    sousPrefectures: ["Dabola (CU)", "Arfamoussaya", "Fia", "Kindoye", "Ndéma", "Pelléya"],
+  },
+  "dinguiraye": {
+    nom: "Préfecture de Dinguiraye",
+    districts: [
+      { nom: "Dinguiraye-Centre", secteurs: s("DC", 3) },
+      { nom: "Dinguiraye-Nord",   secteurs: s("DN", 2) },
+    ],
+    sousPrefectures: ["Dinguiraye (CU)", "Bendou", "Diari-Dinguiraye", "Doura", "Gagnakaly", "Kalinko-Dinguiraye", "Koba-Dinguiraye"],
+  },
+  "kissidougou": {
+    nom: "Préfecture de Kissidougou",
+    districts: [
+      { nom: "Kissidougou-Centre", secteurs: s("KC", 3) },
+      { nom: "Kissidougou-Sud",    secteurs: s("KS", 2) },
+    ],
+    sousPrefectures: ["Kissidougou (CU)", "Fermessadou-Pombo", "Firawa", "Gbangbadou", "Kondiadou", "Manfran", "Yendé-Millimou", "Yendé-Moussa"],
+  },
+
+  // ── RÉGION DE KANKAN ─────────────────────────────────────────────────────────
+  "kankan-cu": {
+    nom: "Commune Urbaine de Kankan",
+    districts: [
+      { nom: "Kankan-Centre",  secteurs: ["Marché Central", "Mairie", "Mosquée Karamoko", "Gare Fluviale"] },
+      { nom: "Gbèrèdou",       secteurs: s("GBE", 4) },
+      { nom: "Kourouma",       secteurs: s("KOU", 3) },
+      { nom: "Bato",           secteurs: s("BAT", 3) },
+      { nom: "Moribakoura",    secteurs: s("MOR", 2) },
+      { nom: "Komaréya",       secteurs: s("KOM", 2) },
+    ],
+  },
+  "kankan": {
+    nom: "Préfecture de Kankan",
+    districts: [
+      { nom: "Kankan-Centre",  secteurs: ["Marché", "Mairie", "Mosquée"] },
+      { nom: "Gbèrèdou",       secteurs: s("GBE", 3) },
+    ],
+    sousPrefectures: ["Kankan (CU)", "Balandougou", "Banankoro", "Bordo", "Cissela", "Djanka", "Faralako", "Founou", "Gbèrèdou-Hamdallaye", "Kouroussa-Kankan", "Missamana", "Moribayah", "Sabadou-Baranama"],
+  },
+  "kerouane": {
+    nom: "Préfecture de Kérouané",
+    districts: [
+      { nom: "Kérouané-Centre", secteurs: s("KC", 3) },
+      { nom: "Kérouané-Nord",   secteurs: s("KN", 2) },
+    ],
+    sousPrefectures: ["Kérouané (CU)", "Banié", "Damaro", "Komodou", "Sibiribaro", "Soromaya", "Traoréla"],
+  },
+  "kouroussa": {
+    nom: "Préfecture de Kouroussa",
+    districts: [
+      { nom: "Kouroussa-Centre", secteurs: s("KC", 3) },
+      { nom: "Kouroussa-Fleuve", secteurs: s("KF", 2) },
+    ],
+    sousPrefectures: ["Kouroussa (CU)", "Babila", "Baro", "Doura-Kouroussa", "Douako", "Koumana", "Sanguiana", "Tiro-Kouroussa"],
+  },
+  "mandiana": {
+    nom: "Préfecture de Mandiana",
+    districts: [
+      { nom: "Mandiana-Centre", secteurs: s("MC", 3) },
+      { nom: "Mandiana-Est",    secteurs: s("ME", 2) },
+    ],
+    sousPrefectures: ["Mandiana (CU)", "Faralako-Mandiana", "Kiniéran", "Krédou", "Morodou", "Nianiana", "Nyamina", "Saladou", "Sossodala", "Nono"],
+  },
+  "siguiri": {
+    nom: "Préfecture de Siguiri",
+    districts: [
+      { nom: "Siguiri-Centre",  secteurs: ["Marché", "Mairie", "Fleuve Niger", "Mines"] },
+      { nom: "Siguiri-Mines",   secteurs: s("SM", 3) },
+      { nom: "Norassoba",       secteurs: s("NOR", 2) },
+    ],
+    sousPrefectures: ["Siguiri (CU)", "Doko", "Franwalia", "Kiniero", "Kintinian", "Maléah", "Norassoba", "Niagassola", "Ouaran", "Saladou-Siguiri"],
+  },
+
+  // ── RÉGION DE N'ZÉRÉKORÉ ─────────────────────────────────────────────────────
+  "nzerekore-cu": {
+    nom: "Commune Urbaine de N'Zérékoré",
+    districts: [
+      { nom: "N'Zérékoré-Centre", secteurs: ["Marché Central", "Mairie", "Cathédrale", "Mosquée"] },
+      { nom: "Tokpota",           secteurs: s("TOK", 3) },
+      { nom: "Gbakoré",           secteurs: s("GBA", 3) },
+      { nom: "Gbèkouré",          secteurs: s("GBE", 2) },
+      { nom: "Yalenzou",          secteurs: s("YAL", 3) },
+      { nom: "Gbié",              secteurs: s("GBI", 2) },
+    ],
+  },
+  "nzerekore": {
+    nom: "Préfecture de N'Zérékoré",
+    districts: [
+      { nom: "N'Zérékoré-Centre", secteurs: ["Marché", "Mairie", "Cathédrale"] },
+      { nom: "Tokpota",           secteurs: s("TOK", 2) },
+    ],
+    sousPrefectures: ["N'Zérékoré (CU)", "Bounouma", "Gouécké", "Lainé", "Orémai", "Samoé", "Sowonata", "Tounkarata"],
+  },
+  "beyla": {
+    nom: "Préfecture de Beyla",
+    districts: [
+      { nom: "Beyla-Centre",    secteurs: s("BC", 3) },
+      { nom: "Beyla-Forêt",     secteurs: s("BF", 2) },
+    ],
+    sousPrefectures: ["Beyla (CU)", "Diassodou", "Gbondou", "Karala", "Moussadou", "Nionsomoridou", "Sanankoro-Beyla", "Sindou", "Sinko"],
+  },
+  "gueckedou": {
+    nom: "Préfecture de Guéckédou",
+    districts: [
+      { nom: "Guéckédou-Centre", secteurs: s("GC", 3) },
+      { nom: "Guéckédou-Fleuve", secteurs: s("GF", 2) },
+    ],
+    sousPrefectures: ["Guéckédou (CU)", "Fangamadou", "Guéckédou-Rural", "Kassadou", "Nongoa", "Ouendou", "Tèwomèy"],
+  },
+  "lola": {
+    nom: "Préfecture de Lola",
+    districts: [
+      { nom: "Lola-Centre",     secteurs: s("LC", 3) },
+      { nom: "Lola-Forêt",      secteurs: s("LF", 2) },
+    ],
+    sousPrefectures: ["Lola (CU)", "Bossou", "Gouéla", "Nzo", "Tounkarata-Lola", "Zérékoré"],
+  },
+  "macenta": {
+    nom: "Préfecture de Macenta",
+    districts: [
+      { nom: "Macenta-Centre",  secteurs: s("MC", 3) },
+      { nom: "Macenta-Forêt",   secteurs: s("MF", 2) },
+    ],
+    sousPrefectures: ["Macenta (CU)", "Balizia", "Bofossou", "Femenia", "Gbangbadou-Macenta", "Kouankan", "Moussadou-Macenta", "N'Zébéla", "Sérédou", "Simpar"],
+  },
+  "yomou": {
+    nom: "Préfecture de Yomou",
+    districts: [
+      { nom: "Yomou-Centre",    secteurs: s("YC", 3) },
+      { nom: "Yomou-Forêt",     secteurs: s("YF", 2) },
+    ],
+    sousPrefectures: ["Yomou (CU)", "Bignamou", "Daro", "Diécké", "Nionsomoridou-Yomou"],
+  },
+};
+
+// Extract short name from full official name ("Commune Urbaine de Mamou" → "Mamou")
+function shortName(fullName: string): string {
+  return fullName
+    .replace(/^Commune Urbaine de /i, "")
+    .replace(/^Préfecture de /i, "")
+    .replace(/^Commune de /i, "")
+    .trim();
+}
+
+// Build plausible geographic data for any commune
+const MAMOU_CENTER = { lat: 10.3755, lng: -12.0892 };
+
+// GPS coordinates for all Guinean administrative entities
+const GUINEA_CENTERS: Record<string, { lat: number; lng: number; zoom: number }> = {
+  // ── CONAKRY ──
+  "conakry-kaloum":     { lat: 9.5143,  lng: -13.7005, zoom: 14 },
+  "conakry-dixinn":     { lat: 9.5460,  lng: -13.6750, zoom: 14 },
+  "conakry-matam":      { lat: 9.5667,  lng: -13.6400, zoom: 14 },
+  "conakry-ratoma":     { lat: 9.6050,  lng: -13.6233, zoom: 13 },
+  "conakry-matoto":     { lat: 9.5300,  lng: -13.5833, zoom: 13 },
+  // ── KINDIA ──
+  "kindia":             { lat: 10.0583, lng: -12.8658, zoom: 13 },
+  "coyah":              { lat: 9.7167,  lng: -13.3833, zoom: 13 },
+  "dubreka":            { lat: 9.7833,  lng: -13.5167, zoom: 13 },
+  "forecariah":         { lat: 9.4167,  lng: -13.0833, zoom: 13 },
+  "telimele":           { lat: 10.9000, lng: -13.0333, zoom: 12 },
+  "telimele-cu":        { lat: 10.9000, lng: -13.0333, zoom: 13 },
+  // ── BOKÉ ──
+  "boke":               { lat: 10.9333, lng: -14.2833, zoom: 13 },
+  "boke-cu":            { lat: 10.9333, lng: -14.2833, zoom: 14 },
+  "boffa":              { lat: 10.1833, lng: -14.0500, zoom: 13 },
+  "fria":               { lat: 10.3667, lng: -13.5500, zoom: 13 },
+  "gaoual":             { lat: 11.7500, lng: -13.2000, zoom: 13 },
+  "koundara":           { lat: 12.4833, lng: -13.3000, zoom: 12 },
+  "kamsar":             { lat: 10.6833, lng: -14.6000, zoom: 13 },
+  // ── MAMOU ──
+  "mamou":              { lat: 10.3755, lng: -12.0892, zoom: 13 },
+  "mamou-cu":           { lat: 10.3755, lng: -12.0892, zoom: 14 },
+  "dalaba":             { lat: 10.6833, lng: -12.2500, zoom: 13 },
+  "pita":               { lat: 11.0667, lng: -12.4000, zoom: 13 },
+  "tougue":             { lat: 11.4500, lng: -11.6833, zoom: 12 },
+  // ── LABÉ ──
+  "labe":               { lat: 11.3167, lng: -12.2833, zoom: 13 },
+  "labe-cu":            { lat: 11.3167, lng: -12.2833, zoom: 14 },
+  "koubia":             { lat: 11.5667, lng: -11.8833, zoom: 13 },
+  "lelouma":            { lat: 11.2000, lng: -12.1000, zoom: 13 },
+  "mali":               { lat: 12.0833, lng: -12.3000, zoom: 12 },
+  // ── FARANAH ──
+  "faranah":            { lat: 10.0500, lng: -10.7333, zoom: 13 },
+  "faranah-cu":         { lat: 10.0500, lng: -10.7333, zoom: 14 },
+  "dabola":             { lat: 10.7500, lng: -11.1167, zoom: 13 },
+  "dinguiraye":         { lat: 11.3000, lng: -10.7167, zoom: 12 },
+  "kissidougou":        { lat: 9.1833,  lng: -10.1167, zoom: 13 },
+  // ── KANKAN ──
+  "kankan":             { lat: 10.3833, lng: -9.3000,  zoom: 13 },
+  "kankan-cu":          { lat: 10.3833, lng: -9.3000,  zoom: 14 },
+  "kouroussa":          { lat: 10.6500, lng: -9.8833,  zoom: 13 },
+  "mandiana":           { lat: 10.6333, lng: -8.6667,  zoom: 12 },
+  "siguiri":            { lat: 11.4167, lng: -9.1667,  zoom: 13 },
+  "kerouane":           { lat: 9.2667,  lng: -9.0167,  zoom: 13 },
+  // ── N'ZÉRÉKORÉ ──
+  "nzerekore":          { lat: 7.7500,  lng: -8.8167,  zoom: 13 },
+  "nzerekore-cu":       { lat: 7.7500,  lng: -8.8167,  zoom: 14 },
+  "beyla":              { lat: 8.6833,  lng: -8.6500,  zoom: 13 },
+  "gueckedou":          { lat: 8.5667,  lng: -10.1333, zoom: 13 },
+  "lola":               { lat: 7.8167,  lng: -8.5333,  zoom: 13 },
+  "macenta":            { lat: 8.5500,  lng: -9.4667,  zoom: 13 },
+  "yomou":              { lat: 7.5667,  lng: -9.2500,  zoom: 13 },
+};
+
+function getCenter(communeId: string): { lat: number; lng: number; zoom: number } {
+  if (GUINEA_CENTERS[communeId]) return GUINEA_CENTERS[communeId];
+  // Fuzzy match: strip suffixes like -cu, -prefecture
+  const base = communeId.replace(/-(cu|prefecture|pref|urbaine)$/i, "");
+  if (GUINEA_CENTERS[base]) return GUINEA_CENTERS[base];
+  return { lat: MAMOU_CENTER.lat, lng: MAMOU_CENTER.lng, zoom: 13 };
+}
+
+// Generate GPS coordinates for each district around a center with seeded offsets
+function genDistrictCoords(
+  districts: { nom: string; secteurs: string[] }[],
+  center: { lat: number; lng: number },
+  communeId: string
+): { nom: string; secteurs: string[]; lat: number; lng: number }[] {
+  const spread = 0.018; // ~2km radius
+  return districts.map((d, i) => {
+    const angle = (i / districts.length) * 2 * Math.PI + seededRand(communeId, i + 100);
+    const dist = spread * (0.4 + seededRand(communeId, i + 200) * 0.6);
+    return {
+      ...d,
+      lat: center.lat + Math.sin(angle) * dist,
+      lng: center.lng + Math.cos(angle) * dist,
+    };
+  });
+}
+
+// Generate simulated contribuables with GPS near the given center
+function genSimContribuables(
+  center: { lat: number; lng: number },
+  communeId: string,
+  communeCode: string,
+  districts: { nom: string; secteurs: string[]; lat?: number; lng?: number }[],
+  count = 30
+): Contribuable[] {
+  const surnames = ["Diallo","Bah","Sow","Barry","Camara","Sylla","Kouyaté","Diakité","Condé","Baldé","Touré","Bangoura","Kourouma","Soumah","Keita"];
+  const firstnames = ["Mamadou","Fatoumata","Ibrahim","Aissatou","Sékou","Mariama","Alhassane","Hawa","Mohamed","Aminata","Alpha","Kadiatou","Ibrahima","Mariam"];
+  const types = ["Résidentiel","Commercial","Industriel","Administratif"];
+  const usages = ["Habitation principale","Boutique","Restaurant","Entrepôt","Bureau","Pharmacie"];
+  const statuts = ["Payé","En attente","Arriéré","Payé","Payé"] as const;
+  const cats = ["A","B","C"] as const;
+  const spread = 0.012;
+  const year = new Date().getFullYear();
+  return Array.from({ length: count }, (_, i) => {
+    const r = (n: number) => seededRand(`${communeId}-contrib-${i}`, n);
+    const distIdx = Math.floor(r(0) * districts.length);
+    const dist = districts[distIdx];
+    const baseLat = dist?.lat ?? center.lat;
+    const baseLng = dist?.lng ?? center.lng;
+    const angle = r(1) * 2 * Math.PI;
+    const radius = spread * (0.1 + r(2) * 0.9);
+    const lat = baseLat + Math.sin(angle) * radius;
+    const lng = baseLng + Math.cos(angle) * radius;
+    const nomIdx = Math.floor(r(3) * surnames.length);
+    const prenomIdx = Math.floor(r(4) * firstnames.length);
+    const typeIdx = Math.floor(r(5) * types.length);
+    const usageIdx = Math.floor(r(6) * usages.length);
+    const statutIdx = Math.floor(r(7) * statuts.length);
+    const cat = cats[Math.floor(r(8) * cats.length)];
+    const surface = 60 + Math.floor(r(9) * 400);
+    const valeur = (800000 + Math.floor(r(10) * 8000000));
+    const num = String(i + 1).padStart(5, "0");
+    return {
+      id: `${communeCode}-${year}-${num}`,
+      nom: surnames[nomIdx],
+      prenom: firstnames[prenomIdx],
+      telephone: `+224 6${String(Math.floor(r(11)*9)+1)}${String(Math.floor(r(12)*10000000)).padStart(7,"0")}`,
+      nin: `GN${year}${String(Math.floor(r(13)*90000000)+10000000)}`,
+      quartier: dist?.nom ?? "Centre-ville",
+      secteur: dist?.secteurs?.[Math.floor(r(14)*((dist?.secteurs?.length??1)))] ?? "S-01",
+      type: types[typeIdx],
+      usage: usages[usageIdx],
+      surface,
+      valeur,
+      statut: statuts[statutIdx],
+      date: `${year}-${String(Math.floor(r(15)*11)+1).padStart(2,"0")}-${String(Math.floor(r(16)*27)+1).padStart(2,"0")}`,
+      coordGps: `${lat.toFixed(6)}, ${lng.toFixed(6)}`,
+      categorie: cat,
+    };
+  });
+}
+
+function buildCommuneConfig(communeId: string, communeName: string): CommuneConfig {
+  const baseName = shortName(communeName);
+  const code = baseName.slice(0, 3).toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const COLOR_PALETTE = ["#1B3A6B", "#B8860B", "#2E6B3E", "#8B1A1A", "#4A6B8A", "#6B4A8A", "#8A6B4A", "#2E6B6B", "#6B2E3E"];
+  const r = (i: number) => seededRand(communeId, i);
+  const center = getCenter(communeId);
+
+  // Mamou — use exact known data
+  if (communeId === "mamou" || communeId === "mamou-cu") {
+    const mamouDistricts = PREFECTURE_MAMOU.communes[0].districts ?? (PREFECTURE_MAMOU.communes[0] as any).quartiers?.map((q: any) => ({ nom: q.nom, secteurs: q.secteurs, lat: q.lat, lng: q.lng })) ?? [];
+    return {
+      code: "MOU",
+      communeName,
+      communes: PREFECTURE_MAMOU.communes,
+      sousPrefectures: PREFECTURE_MAMOU.sousPrefectures,
+      spStats: SP_STATS,
+      quartierColors: QUARTIER_COLORS,
+      agents: AGENTS_RECENSEURS,
+      mapCenter: { lat: MAMOU_CENTER.lat, lng: MAMOU_CENTER.lng, zoom: 13 },
+    };
+  }
+
+  // Use real Guinea geo data if available
+  const geo = GUINEA_GEO[communeId];
+
+  const isPrefecture = communeName.toLowerCase().startsWith("préfecture");
+  const entityLabel = isPrefecture ? "Préfecture" : "Commune Urbaine";
+  const mainNom = geo?.nom ?? (isPrefecture ? `Commune Urbaine de ${baseName}` : communeName);
+  const districts = geo?.districts ?? [
+    { nom: `${baseName}-Centre`, secteurs: ["Marché", "Mairie", "Mosquée", "Gare"] },
+    { nom: `${baseName}-Nord`,   secteurs: ["Nord-S1", "Nord-S2", "Nord-S3"] },
+    { nom: `${baseName}-Sud`,    secteurs: ["Sud-S1", "Sud-S2", "Sud-S3"] },
+    { nom: "Résidentiel",        secteurs: ["Rés-S1", "Rés-S2"] },
+    { nom: "Zone Commerciale",   secteurs: ["ZC-S1", "ZC-S2", "ZC-S3"] },
+  ];
+
+  const communeUrbaine = { nom: mainNom, districts };
+
+  // Sous-préfectures: use real data if available, else generate
+  const spSuffixes = ["Centre", "Nord", "Sud", "Est", "Ouest", "Rural", "Périphérie", "Plateau"];
+  const sousPrefectures: string[] = geo?.sousPrefectures ?? Array.from(
+    { length: isPrefecture ? 6 + Math.floor(r(1) * 4) : 3 + Math.floor(r(1) * 3) },
+    (_, i) => i === 0 ? `${baseName}-Centre` : `SP-${baseName}-${spSuffixes[i % spSuffixes.length]}`
+  );
+
+  // Build spStats with seeded values
+  const spStats: CommuneConfig["spStats"] = {};
+
+  const mainContribs = 3000 + Math.floor(r(2) * 5000);
+  const mainTaux = 55 + Math.floor(r(3) * 30);
+  const mainDistricts: Record<string, { contribuables: number; taux: number; recettes: number; secteurs: string[] }> = {};
+  districts.forEach((d, i) => {
+    const dc = 200 + Math.floor(r(i + 20) * 800);
+    const dt = 50 + Math.floor(r(i + 30) * 35);
+    mainDistricts[d.nom] = { contribuables: dc, taux: dt, recettes: dc * (70000 + Math.floor(r(i + 40) * 30000)), secteurs: d.secteurs };
+  });
+  spStats[mainNom] = { label: entityLabel, contribuables: mainContribs, taux: mainTaux, recettes: mainContribs * (80000 + Math.floor(r(4) * 40000)), arriere: Math.floor(mainContribs * 0.2), districts: mainDistricts };
+
+  sousPrefectures.slice(1).forEach((sp, i) => {
+    const spContribs = 400 + Math.floor(r(i + 50) * 1200);
+    const spTaux = 40 + Math.floor(r(i + 60) * 30);
+    const spLabel = sp.replace(`SP-${baseName}-`, "").replace(` (CU)`, "");
+    const spDistricts: Record<string, { contribuables: number; taux: number; recettes: number; secteurs: string[] }> = {};
+    [`${spLabel}-Centre`, `${spLabel}-Périphérie`].forEach((d, j) => {
+      const dc = 100 + Math.floor(r(i + j + 70) * 500);
+      spDistricts[d] = { contribuables: dc, taux: 40 + Math.floor(r(i + j + 80) * 25), recettes: dc * 50000, secteurs: ["Secteur 1", "Secteur 2"] };
+    });
+    spStats[`Sous-Préfecture de ${spLabel}`] = { label: `SP ${spLabel}`, contribuables: spContribs, taux: spTaux, recettes: spContribs * 60000, arriere: Math.floor(spContribs * 0.25), districts: spDistricts };
+  });
+
+  const quartierColors: Record<string, string> = {};
+  districts.forEach((d, i) => { quartierColors[d.nom] = COLOR_PALETTE[i % COLOR_PALETTE.length]; });
+
+  // Enrich districts with GPS coordinates
+  const districtsWithCoords = genDistrictCoords(districts, center, communeId);
+
+  return {
+    code,
+    communeName,
+    communes: [{ nom: mainNom, districts: districtsWithCoords }],
+    sousPrefectures,
+    spStats,
+    quartierColors,
+    agents: AGENTS_RECENSEURS,
+    mapCenter: { lat: center.lat, lng: center.lng, zoom: center.zoom },
+  };
+}
+
 // ─── FlagLogo ─────────────────────────────────────────────────────────────────
 function FlagLogo({ size = 32 }: { size?: number }) {
   return (
@@ -340,8 +1040,7 @@ function FlagLogo({ size = 32 }: { size?: number }) {
 }
 
 // ─── Données géographiques de Mamou ──────────────────────────────────────────
-const MAMOU_CENTER = { lat: 10.3755, lng: -12.0892 };
-
+// (MAMOU_CENTER is also defined earlier in the file before GUINEA_CENTERS for buildCommuneConfig)
 // Structure administrative de Mamou
 const PREFECTURE_MAMOU = {
   nom: "Mamou",
@@ -1042,16 +1741,23 @@ function MultiFileUpload({ label, files, onFilesChange, accept = "image/*,.pdf" 
 
 // ─── Formulaire Contribuable ──────────────────────────────────────────────────
 function ContribuableForm({
-  initial, onSave, onClose,
+  initial, onSave, onClose, communeConfig, communeName = "Mamou",
 }: {
   initial?: Partial<Contribuable>;
   onSave: (c: Contribuable) => void;
   onClose: () => void;
+  communeConfig?: CommuneConfig;
+  communeName?: string;
 }) {
+  const mainCommune = communeConfig?.communes[0] ?? PREFECTURE_MAMOU.communes[0];
+  const quartiers = (mainCommune as any).districts ?? (mainCommune as any).quartiers ?? [];
+  const firstQ = quartiers[0]?.nom ?? "Centre-ville";
+  const communeCode = communeConfig?.code ?? "MOU";
   const [form, setForm] = useState<Partial<Contribuable>>({
-    nom: "", prenom: "", telephone: "", nin: "", quartier: "Centre-ville",
-    secteur: "S-01", type: "Résidentiel", usage: "Habitation principale",
+    nom: "", prenom: "", telephone: "", nin: "", quartier: firstQ,
+    secteur: quartiers[0]?.secteurs?.[0] ?? "S-01", type: "Résidentiel", usage: "Habitation principale",
     surface: 0, valeur: 0, statut: "En attente", categorie: "B",
+    commune: mainCommune.nom,
     coordGps: "", date: new Date().toISOString().slice(0, 10),
     ...initial,
   });
@@ -1078,7 +1784,7 @@ function ContribuableForm({
       return;
     }
     const c: Contribuable = {
-      id: initial?.id ?? `MOU-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 90000) + 10000)}`,
+      id: initial?.id ?? `${communeCode}-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 90000) + 10000)}`,
       nom: form.nom!, prenom: form.prenom!, telephone: form.telephone!,
       nin: form.nin ?? "", quartier: form.quartier!, secteur: form.secteur!,
       type: form.type!, usage: form.usage!, surface: Number(form.surface),
@@ -1118,7 +1824,7 @@ function ContribuableForm({
       <div className="grid grid-cols-2 gap-4">
         <Field label="Quartier" required>
           <select className={selectCls} value={form.quartier} onChange={(e) => set("quartier", e.target.value)}>
-            {PREFECTURE_MAMOU.communes[0].quartiers.map((q) => (
+            {quartiers.map((q: any) => (
               <option key={q.nom}>{q.nom}</option>
             ))}
           </select>
@@ -1126,9 +1832,9 @@ function ContribuableForm({
         <Field label="Secteur">
           <select className={selectCls} value={form.secteur} onChange={(e) => set("secteur", e.target.value)}>
             {(() => {
-              const quartier = PREFECTURE_MAMOU.communes[0].quartiers.find(q => q.nom === form.quartier);
+              const quartier = quartiers.find((q: any) => q.nom === form.quartier);
               const secteurs = quartier?.secteurs || ["S-01"];
-              return secteurs.map((s) => <option key={s}>{s}</option>);
+              return secteurs.map((s: string) => <option key={s}>{s}</option>);
             })()}
           </select>
         </Field>
@@ -1231,10 +1937,11 @@ function ContribuableForm({
 }
 
 // ─── Vue détail contribuable ──────────────────────────────────────────────────
-function ContribuableDetail({ c, onEdit, onClose, onPaiement, notificationSettings, onNotificationSent }: {
+function ContribuableDetail({ c, onEdit, onClose, onPaiement, notificationSettings, onNotificationSent, communeName = "Mamou" }: {
   c: Contribuable; onEdit: () => void; onClose: () => void; onPaiement: () => void;
-  notificationSettings?: NotificationSettings; 
+  notificationSettings?: NotificationSettings;
   onNotificationSent?: (log: NotificationLog) => void;
+  communeName?: string;
 }) {
   const [showAvis, setShowAvis] = useState(false);
 
@@ -1360,7 +2067,7 @@ function ContribuableDetail({ c, onEdit, onClose, onPaiement, notificationSettin
                 {[
                   { label: "État", pct: c.pourcentageEtat ?? 15 },
                   { label: "Agent recenseur", pct: c.pourcentageAgent ?? 5 },
-                  { label: "Commune de Mamou", pct: c.pourcentageCommune ?? 80 },
+                  { label: communeName, pct: c.pourcentageCommune ?? 80 },
                 ].map(r => (
                   <tr key={r.label} className="border-t border-border/50">
                     <td className="px-3 py-2">{r.label}</td>
@@ -1441,7 +2148,7 @@ function ContribuableDetail({ c, onEdit, onClose, onPaiement, notificationSettin
           const montant = Math.round((c.valeur ?? 0) * taux / 100);
           printSection({
             title: "Fiche Contribuable",
-            subtitle: `ID: ${c.id} · ${c.commune ?? "Commune Urbaine de Mamou"}`,
+            subtitle: `ID: ${c.id} · ${c.commune ?? communeName}`,
             html: `
               <table>
                 <thead><tr><th colspan="2" style="background:#1B3A6B;color:white;text-align:center">${c.prenom} ${c.nom} — ${c.id}</th></tr></thead>
@@ -1599,14 +2306,14 @@ function PaiementForm({
 }
 
 // ─── Vue reçu de paiement ─────────────────────────────────────────────────────
-function RecuPaiement({ p, onClose }: { p: Paiement; onClose: () => void }) {
+function RecuPaiement({ p, onClose, communeName = "Mamou" }: { p: Paiement; onClose: () => void; communeName?: string }) {
   return (
     <div className="p-6 space-y-6">
       <div className="border border-border rounded-sm p-6 bg-background space-y-4">
         <div className="flex items-center justify-between border-b border-border pb-4">
           <div>
-            <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest">Commune Urbaine de Mamou</p>
-            <p className="text-xs font-mono text-muted-foreground">SNRR-Mamou · Reçu fiscal</p>
+            <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest">{communeName}</p>
+            <p className="text-xs font-mono text-muted-foreground">SNRR · Reçu fiscal</p>
           </div>
           <div className="text-right">
             <p className="text-xs font-mono text-muted-foreground">Référence</p>
@@ -1653,7 +2360,7 @@ function RecuPaiement({ p, onClose }: { p: Paiement; onClose: () => void }) {
               { label: "Date", value: p.date },
               { label: "Statut", value: p.statut, bold: true },
             ],
-            footer: "Merci de votre paiement.<br/>Commune Urbaine de Mamou",
+            footer: `Merci de votre paiement.<br/>${communeName}`,
             qrValue: p.ref,
           });
         }}>
@@ -1674,12 +2381,13 @@ const ROLES_CONFIG: Record<string, { color: string; permissions: string[] }> = {
   "Agent recouvrement":{ color: "#f59e0b", permissions: ["Paiements", "Reçus", "Consultation dossiers"] },
 };
 
-function UserForm({ initial, onSave, onClose, existingEmails = [], existingIdentifiants = [] }: {
+function UserForm({ initial, onSave, onClose, existingEmails = [], existingIdentifiants = [], communeDomain = "mamou-commune.gn" }: {
   initial?: Partial<Utilisateur>;
   onSave: (u: Utilisateur) => void;
   onClose: () => void;
   existingEmails?: string[];
   existingIdentifiants?: string[];
+  communeDomain?: string;
 }) {
   const isEdit = !!initial?.id;
   const [step, setStep] = useState(0); // 0=identité, 1=accès, 2=confirmation
@@ -1704,7 +2412,7 @@ function UserForm({ initial, onSave, onClose, existingEmails = [], existingIdent
   const suggestEmail = () => {
     if (form.prenom && form.nom) {
       if (!form.email) {
-        set("email", `${normalize(form.prenom)}.${normalize(form.nom)}@mamou-commune.gn`);
+        set("email", `${normalize(form.prenom)}.${normalize(form.nom)}@${communeDomain}`);
       }
       if (!form.identifiant) {
         set("identifiant", `${normalize(form.prenom)[0]}.${normalize(form.nom)}`);
@@ -1830,7 +2538,7 @@ function UserForm({ initial, onSave, onClose, existingEmails = [], existingIdent
 
         <div className="flex gap-3 pt-2 border-t border-border">
           <button type="button" onClick={() => {
-            const txt = `Identifiants SNRR-Mamou\nIdentifiant : ${created.identifiant ?? ""}\nEmail : ${created.email}\nMot de passe : ${pwd}\nID : ${created.id}`;
+            const txt = `Identifiants SNRR\nIdentifiant : ${created.identifiant ?? ""}\nEmail : ${created.email}\nMot de passe : ${pwd}\nID : ${created.id}`;
             navigator.clipboard?.writeText(txt).catch(() => {});
           }} className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-mono border border-border rounded-sm hover:bg-secondary transition-colors">
             <Download size={13} /> Copier identifiants
@@ -1877,7 +2585,7 @@ function UserForm({ initial, onSave, onClose, existingEmails = [], existingIdent
               <div>
                 <p className="text-sm font-medium text-foreground">{form.prenom || "Prénom"} {form.nom || "Nom"}</p>
                 <p className="text-xs font-mono text-muted-foreground">{form.role}</p>
-                <p className="text-xs font-mono text-muted-foreground">{form.email || "email@mamou-commune.gn"}</p>
+                <p className="text-xs font-mono text-muted-foreground">{form.email || `email@${communeDomain}`}</p>
               </div>
             </div>
 
@@ -1926,7 +2634,7 @@ function UserForm({ initial, onSave, onClose, existingEmails = [], existingIdent
                 <div className="flex gap-1.5">
                   <input type="email" className={`${inputCls} flex-1 ${errors.email ? "border-red-400" : ""}`}
                     value={form.email} onChange={e => set("email", e.target.value)}
-                    placeholder="prenom.nom@mamou-commune.gn" />
+                    placeholder={`prenom.nom@${communeDomain}`} />
                   {!form.email && (
                     <button type="button" onClick={suggestEmail}
                       className="px-2 py-1 text-[10px] font-mono border border-border rounded-sm hover:bg-secondary whitespace-nowrap text-muted-foreground">
@@ -2384,10 +3092,11 @@ function SvgStackedBar({ data, series, height = 200 }: {
   );
 }
 
-function Dashboard({ onNavigate, contribuables, paiements, currentUserRole, recettesData }: {
+function Dashboard({ onNavigate, contribuables, paiements, currentUserRole, recettesData, communeName = "Mamou", communeConfig }: {
   onNavigate: (v: View) => void; contribuables: Contribuable[]; paiements: Paiement[];
-  currentUserRole?: Role; recettesData?: RecetteMois[];
+  currentUserRole?: Role; recettesData?: RecetteMois[]; communeName?: string; communeConfig?: CommuneConfig;
 }) {
+  const spStats = communeConfig?.spStats ?? SP_STATS;
   const recettesMonthly = recettesData ?? RECETTES_DEFAULT;
   const [selectedSP, setSelectedSP] = useState<string | null>(null);
   const totalRecettes = paiements.filter((p) => p.statut === "Validé").reduce((s, p) => s + p.montant, 0);
@@ -2409,7 +3118,7 @@ function Dashboard({ onNavigate, contribuables, paiements, currentUserRole, rece
     { action: "Rapport généré", detail: "Recettes mensuelles — Mai 2024", time: "Il y a 2 h", icon: FileBarChart2, view: "rapports" as View },
   ];
 
-  const spData = selectedSP ? SP_STATS[selectedSP] : null;
+  const spData = selectedSP ? spStats[selectedSP] : null;
 
   return (
     <div className="space-y-6">
@@ -2424,14 +3133,14 @@ function Dashboard({ onNavigate, contribuables, paiements, currentUserRole, rece
           <div className="flex items-center gap-3">
             <FlagLogo size={36} />
             <div>
-              <p className="text-white font-bold text-sm">Préfecture de Mamou</p>
-              <p className="text-white/60 text-xs font-mono">{Object.keys(SP_STATS).length} communes & sous-préfectures</p>
+              <p className="text-white font-bold text-sm">{communeName}</p>
+              <p className="text-white/60 text-xs font-mono">{Object.keys(spStats).length} communes & sous-préfectures</p>
             </div>
           </div>
           <div className="text-right">
             <p className="text-white/60 text-xs font-mono">Taux global</p>
             <p className="text-[#FCD116] font-bold text-xl" style={{ fontFamily: "'Crimson Pro', serif" }}>
-              {Math.round(Object.values(SP_STATS).reduce((s, d) => s + d.taux, 0) / Object.keys(SP_STATS).length)}%
+              {Math.round(Object.values(spStats).reduce((s, d) => s + d.taux, 0) / Math.max(Object.keys(spStats).length, 1))}%
             </p>
           </div>
         </div>
@@ -2470,7 +3179,7 @@ function Dashboard({ onNavigate, contribuables, paiements, currentUserRole, rece
         </div>
         <div className="p-4">
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mb-4">
-            {Object.entries(SP_STATS).map(([key, sp]) => {
+            {Object.entries(spStats).map(([key, sp]) => {
               const color = sp.taux >= 70 ? "#009460" : sp.taux >= 55 ? "#B8860B" : "#CE1126";
               const active = selectedSP === key;
               return (
@@ -2537,7 +3246,7 @@ function Dashboard({ onNavigate, contribuables, paiements, currentUserRole, rece
                     </tr>
                   </thead>
                   <tbody>
-                    {Object.entries(SP_STATS).map(([key, sp]) => {
+                    {Object.entries(spStats).map(([key, sp]) => {
                       const color = sp.taux >= 70 ? "#009460" : sp.taux >= 55 ? "#B8860B" : "#CE1126";
                       return (
                         <tr key={key} className="border-b border-border/40 hover:bg-secondary/30 cursor-pointer transition-colors" onClick={() => setSelectedSP(key)}>
@@ -2709,7 +3418,7 @@ function Dashboard({ onNavigate, contribuables, paiements, currentUserRole, rece
 }
 
 // ─── Recensement ──────────────────────────────────────────────────────────────
-function Recensement({ contribuables, onAdd, onEdit, onView, onDelete, onNewPaiement, canCreate, canEdit, canDelete }: {
+function Recensement({ contribuables, onAdd, onEdit, onView, onDelete, onNewPaiement, canCreate, canEdit, canDelete, communeName = "Mamou" }: {
   contribuables: Contribuable[];
   onAdd: () => void;
   onEdit: (c: Contribuable) => void;
@@ -2719,6 +3428,7 @@ function Recensement({ contribuables, onAdd, onEdit, onView, onDelete, onNewPaie
   canCreate?: boolean;
   canEdit?: boolean;
   canDelete?: boolean;
+  communeName?: string;
 }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("Tous");
@@ -2778,7 +3488,7 @@ function Recensement({ contribuables, onAdd, onEdit, onView, onDelete, onNewPaie
             data={filtered}
             columns={contribuablesColumns}
             filename={`contribuables-mamou-${new Date().toISOString().split('T')[0]}`}
-            title="Liste des Contribuables - Commune de Mamou"
+            title={`Liste des Contribuables - ${communeName}`}
             subtitle={`${filter} - ${statut} (${filtered.length} contribuables)`}
             metadata={{
               "Date d'export": new Date().toLocaleDateString('fr-FR'),
@@ -2985,21 +3695,25 @@ function Taxation({ taxes, contribuables, onAdd, onEdit, onDelete, onSimulation,
 }
 
 // ─── Paiements ────────────────────────────────────────────────────────────────
-function Paiements({ paiements, contribuables, onNew, onView, onCancel, canCreate, canCancel }: {
+function Paiements({ paiements, contribuables, onNew, onView, onCancel, canCreate, canCancel, communeName = "Mamou", communeId = "mamou" }: {
   paiements: Paiement[]; contribuables: Contribuable[];
   onNew: () => void; onView: (p: Paiement) => void; onCancel: (p: Paiement) => void;
-  canCreate?: boolean; canCancel?: boolean;
+  canCreate?: boolean; canCancel?: boolean; communeName?: string; communeId?: string;
 }) {
+  const orangeKey = `snrr_${communeId}_orange_config`;
   const [search, setSearch] = useState("");
   const [statut, setStatut] = useState("Tous");
   const [showOrangeAPI, setShowOrangeAPI] = useState(false);
-  const [orangeConfig, setOrangeConfig] = useState({
-    codeMarchand: "CM-MAMOU-2024",
-    cleAPI: "sk_live_*********************",
-    urlAPI: "https://api.orange.com/orange-money-webpay/gn/v1",
-    environment: "production" as "sandbox" | "production",
-    numeroMarchand: "+224 620 00 00 00",
-    webhookURL: "https://snrr-mamou.gov.gn/api/webhooks/orange-money"
+  const [orangeConfig, setOrangeConfig] = useState(() => {
+    try { const s = localStorage.getItem(orangeKey); if (s) return JSON.parse(s); } catch {}
+    return {
+      codeMarchand: `CM-${communeId.toUpperCase()}-2024`,
+      cleAPI: "sk_live_*********************",
+      urlAPI: "https://api.orange.com/orange-money-webpay/gn/v1",
+      environment: "production" as "sandbox" | "production",
+      numeroMarchand: "+224 620 00 00 00",
+      webhookURL: `https://snrr-${communeId}.gov.gn/api/webhooks/orange-money`,
+    };
   });
   const [testingAPI, setTestingAPI] = useState(false);
   const [apiTestResult, setApiTestResult] = useState<{success: boolean; message: string} | null>(null);
@@ -3188,7 +3902,7 @@ function Paiements({ paiements, contribuables, onNew, onView, onCancel, canCreat
                 )}
               </button>
               <button onClick={() => {
-                localStorage.setItem("snrr_orange_config", JSON.stringify(orangeConfig));
+                localStorage.setItem(orangeKey, JSON.stringify(orangeConfig));
                 const btn = document.getElementById("btn-save-orange");
                 if (btn) { btn.textContent = "✓ Sauvegardé"; setTimeout(() => { btn.textContent = "Sauvegarder la configuration"; }, 2000); }
               }} id="btn-save-orange" className="flex items-center gap-1.5 px-3 py-2 text-xs font-mono border border-border rounded-sm hover:bg-secondary transition-colors">
@@ -3245,7 +3959,7 @@ Content-Type: application/json
           data={filtered}
           columns={paiementsColumns}
           filename={`paiements-${statut.toLowerCase()}-${new Date().toISOString().split('T')[0]}`}
-          title="Registre des Paiements - SNRR Mamou"
+          title={`Registre des Paiements - ${communeName}`}
           subtitle={`${statut} - ${filtered.length} transactions`}
           metadata={{
             "Date d'export": new Date().toLocaleDateString('fr-FR'),
@@ -3422,7 +4136,33 @@ const MAP_STYLES = {
 
 type MapTileMode = keyof typeof MAP_STYLES;
 
-function Cartographie({ onNavigate, contribuables }: { onNavigate: (v: View) => void, contribuables: Contribuable[] }) {
+function Cartographie({ onNavigate, contribuables, communeName = "Mamou", communeConfig, communeId = "mamou" }: { onNavigate: (v: View) => void, contribuables: Contribuable[]; communeName?: string; communeConfig?: CommuneConfig; communeId?: string }) {
+  const prefecture = communeConfig ?? { sousPrefectures: PREFECTURE_MAMOU.sousPrefectures, communes: PREFECTURE_MAMOU.communes, quartierColors: QUARTIER_COLORS, mapCenter: undefined };
+  const sousPrefectures = prefecture.sousPrefectures;
+  const mainCommune = prefecture.communes[0];
+  const quartierColors = (prefecture as CommuneConfig).quartierColors ?? QUARTIER_COLORS;
+  const mapCenter = (prefecture as CommuneConfig).mapCenter ?? { lat: MAMOU_CENTER.lat, lng: MAMOU_CENTER.lng, zoom: 13 };
+  const districts = mainCommune.districts ?? (mainCommune as any).quartiers ?? [];
+
+  // Build quartier stats dynamically from districts (seeded per commune)
+  const localQuartierStats = districts.map((d, i) => ({
+    quartier: d.nom,
+    contribuables: 200 + Math.floor(seededRand(communeId, i + 20) * 1200),
+    recouvert: 50 + Math.floor(seededRand(communeId, i + 30) * 40),
+    montant: (200 + Math.floor(seededRand(communeId, i + 40) * 800)) * (60000 + Math.floor(seededRand(communeId, i + 50) * 30000)),
+  }));
+
+  // Simulated contribuables with GPS coordinates in this commune
+  const simContribuables = genSimContribuables(
+    { lat: mapCenter.lat, lng: mapCenter.lng },
+    communeId,
+    (prefecture as CommuneConfig).code ?? communeId.slice(0, 3).toUpperCase(),
+    districts,
+    40
+  );
+
+  // Merge real contribuables that have valid GPS with simulated ones (simulated shown if real is empty)
+  const allContribuables = contribuables.length > 0 ? contribuables : simContribuables;
   const [activeQ, setActiveQ] = useState<string | null>(null);
   const [showContribuables, setShowContribuables] = useState(true);
   const [selectedSousPref, setSelectedSousPref] = useState<string | null>(null);
@@ -3455,7 +4195,7 @@ function Cartographie({ onNavigate, contribuables }: { onNavigate: (v: View) => 
     return null;
   };
 
-  const contribuablesWithCoords = contribuables
+  const contribuablesWithCoords = allContribuables
     .map(c => ({ ...c, coords: parseCoords(c.coordGps) }))
     .filter(c => c.coords !== null)
     .filter(c => {
@@ -3539,8 +4279,8 @@ function Cartographie({ onNavigate, contribuables }: { onNavigate: (v: View) => 
       mapInstance = new MapGL({
         container: mapContainerRef.current,
         style: osmStyle,
-        center: [MAMOU_CENTER.lng, MAMOU_CENTER.lat],
-        zoom: 13,
+        center: [mapCenter.lng, mapCenter.lat],
+        zoom: mapCenter.zoom ?? 13,
         attributionControl: false,
       });
 
@@ -3550,15 +4290,17 @@ function Cartographie({ onNavigate, contribuables }: { onNavigate: (v: View) => 
         mapInstance.addControl(new AttributionControl({ compact: true }), "bottom-right");
         mapInstance.addControl(new NavigationControl(), "top-right");
 
-        // Quartier cluster markers
-        quartierStats.forEach((q, i) => {
-          const coords = PREFECTURE_MAMOU.communes[0].quartiers[i];
-          if (!coords) return;
+        // District cluster markers — using coords from communeConfig or simulated
+        localQuartierStats.forEach((q, i) => {
+          const distCoords = districts[i] as { lat?: number; lng?: number } | undefined;
+          const lat = distCoords?.lat;
+          const lng = distCoords?.lng;
+          if (!lat || !lng) return;
           const el = document.createElement("div");
-          const color = QUARTIER_COLORS[q.quartier] || "#4A6B8A";
-          el.innerHTML = `<div style="padding:3px 7px;border-radius:10px;background:${color};color:white;font-size:10px;font-weight:bold;font-family:monospace;white-space:nowrap;border:2px solid white;box-shadow:0 1px 6px rgba(0,0,0,0.35);cursor:pointer">${q.quartier.split(" ")[0]}</div>`;
+          const color = quartierColors[q.quartier] || "#4A6B8A";
+          el.innerHTML = `<div style="padding:3px 7px;border-radius:10px;background:${color};color:white;font-size:10px;font-weight:bold;font-family:monospace;white-space:nowrap;border:2px solid white;box-shadow:0 1px 6px rgba(0,0,0,0.35);cursor:pointer">${q.quartier.split(" ")[0].slice(0,12)}</div>`;
           new Marker({ element: el })
-            .setLngLat([coords.lng, coords.lat])
+            .setLngLat([lng, lat])
             .setPopup(new Popup({ offset: 14, closeButton: false }).setHTML(
               `<div style="font-family:JetBrains Mono,monospace;font-size:11px;padding:8px;min-width:170px">
                 <b style="color:${color};font-size:13px">${q.quartier}</b><br/>
@@ -3664,7 +4406,7 @@ function Cartographie({ onNavigate, contribuables }: { onNavigate: (v: View) => 
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h2 className="text-lg font-light text-foreground" style={{ fontFamily: "'Crimson Pro', serif" }}>
-            Cartographie SIG — Préfecture de Mamou
+            Cartographie SIG — {communeName}
           </h2>
           <p className="text-xs font-mono text-muted-foreground mt-1">
             MapLibre GL • {MAP_STYLES[mapTileMode].label} • {contribuablesWithCoords.length} biens géolocalisés
@@ -3786,10 +4528,10 @@ function Cartographie({ onNavigate, contribuables }: { onNavigate: (v: View) => 
                   <span className="text-xs font-mono">{l.label}</span>
                 </div>
               ))}
-              {Object.entries(QUARTIER_COLORS).slice(0, 5).map(([q, c]) => (
-                <div key={q} className="flex items-center gap-1.5">
-                  <div className="w-4 h-4 rounded-sm border border-border opacity-70" style={{ background: c }} />
-                  <span className="text-[10px] font-mono">{q}</span>
+              {localQuartierStats.slice(0, 5).map(q => (
+                <div key={q.quartier} className="flex items-center gap-1.5">
+                  <div className="w-4 h-4 rounded-sm border border-border opacity-70" style={{ background: quartierColors[q.quartier] || "#4A6B8A" }} />
+                  <span className="text-[10px] font-mono truncate max-w-[80px]">{q.quartier.split("-")[0]}</span>
                 </div>
               ))}
             </div>
@@ -3800,10 +4542,10 @@ function Cartographie({ onNavigate, contribuables }: { onNavigate: (v: View) => 
         <div className="space-y-4">
           <div className="bg-card border border-border rounded-sm p-4">
             <h3 className="text-xs uppercase tracking-widest text-muted-foreground font-mono mb-3 flex items-center gap-2">
-              <Globe size={11} /> Sous-préfectures ({PREFECTURE_MAMOU.sousPrefectures.length})
+              <Globe size={11} /> Sous-préfectures ({sousPrefectures.length})
             </h3>
             <div className="space-y-1 max-h-44 overflow-y-auto">
-              {PREFECTURE_MAMOU.sousPrefectures.map(sp => (
+              {sousPrefectures.map(sp => (
                 <button key={sp} onClick={() => setSelectedSousPref(selectedSousPref === sp ? null : sp)}
                   className={`w-full text-left px-2 py-1.5 text-xs font-mono rounded-sm transition-colors ${selectedSousPref === sp ? "bg-primary/10 text-primary" : "hover:bg-secondary/50"}`}>
                   {sp}
@@ -3814,22 +4556,22 @@ function Cartographie({ onNavigate, contribuables }: { onNavigate: (v: View) => 
           <div>
             <h3 className="text-xs uppercase tracking-widest text-muted-foreground font-mono mb-3">Statistiques par quartier</h3>
             <div className="space-y-2">
-              {quartierStats.map(q => (
+              {localQuartierStats.map(q => (
                 <button key={q.quartier} onClick={() => setActiveQ(activeQ === q.quartier ? null : q.quartier)}
                   className={`w-full bg-card border rounded-sm p-3 text-left transition-all ${activeQ === q.quartier ? "border-primary shadow-md" : "border-border hover:border-primary/40"}`}>
                   <div className="flex items-center justify-between mb-1.5">
                     <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: QUARTIER_COLORS[q.quartier] || "#4A6B8A" }} />
-                      <span className="text-xs font-medium">{q.quartier}</span>
+                      <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: quartierColors[q.quartier] || "#4A6B8A" }} />
+                      <span className="text-xs font-medium truncate max-w-[120px]">{q.quartier}</span>
                     </div>
-                    <span className={`text-xs font-mono font-bold ${q.recouvert >= 75 ? "text-emerald-700" : q.recouvert >= 60 ? "text-amber-700" : "text-red-700"}`}>{q.recouvert}%</span>
+                    <span className={`text-xs font-mono font-bold shrink-0 ${q.recouvert >= 75 ? "text-emerald-700" : q.recouvert >= 60 ? "text-amber-700" : "text-red-700"}`}>{q.recouvert}%</span>
                   </div>
                   <div className="h-1 bg-muted rounded-full overflow-hidden mb-1.5">
                     <div className="h-full rounded-full" style={{ width: `${q.recouvert}%`, background: q.recouvert >= 75 ? "#009460" : q.recouvert >= 60 ? "#B8860B" : "#CE1126" }} />
                   </div>
                   <div className="flex justify-between text-[10px] font-mono text-muted-foreground">
                     <span>{q.contribuables.toLocaleString("fr")} contrib.</span>
-                    <span>{q.montant.toLocaleString("fr-FR")} GNF</span>
+                    <span>{(q.montant / 1_000_000).toFixed(1)}M GNF</span>
                   </div>
                 </button>
               ))}
@@ -3842,7 +4584,8 @@ function Cartographie({ onNavigate, contribuables }: { onNavigate: (v: View) => 
 }
 
 // ─── Rapports ─────────────────────────────────────────────────────────────────
-function Rapports({ contribuables, recettesData }: { contribuables: Contribuable[]; recettesData?: RecetteMois[] }) {
+function Rapports({ contribuables, recettesData, communeName = "Mamou", communeConfig }: { contribuables: Contribuable[]; recettesData?: RecetteMois[]; communeName?: string; communeConfig?: CommuneConfig }) {
+  const spStats = communeConfig?.spStats ?? SP_STATS;
   const recettesMonthly = recettesData ?? RECETTES_DEFAULT;
   const [period, setPeriod] = useState("mensuel");
   const [showFilters, setShowFilters] = useState(false);
@@ -3873,16 +4616,16 @@ function Rapports({ contribuables, recettesData }: { contribuables: Contribuable
     }
   }, [period]);
 
-  const allCommunes = ["Toutes", ...Object.keys(SP_STATS)];
+  const allCommunes = ["Toutes", ...Object.keys(spStats)];
   const allDistricts = filtreCommune !== "Toutes"
-    ? ["Tous", ...Object.keys(SP_STATS[filtreCommune]?.districts ?? {})]
+    ? ["Tous", ...Object.keys(spStats[filtreCommune]?.districts ?? {})]
     : ["Tous"];
 
   const handleCommuneFilter = (c: string) => { setFiltreCommune(c); setFiltreDistrict("Tous"); setFiltreSecteur("Tous"); };
   const handleDistrictFilter = (d: string) => { setFiltreDistrict(d); setFiltreSecteur("Tous"); };
 
   const allSecteurs = filtreDistrict !== "Tous" && filtreCommune !== "Toutes"
-    ? ["Tous", ...(SP_STATS[filtreCommune]?.districts[filtreDistrict]?.secteurs ?? [])]
+    ? ["Tous", ...(spStats[filtreCommune]?.districts[filtreDistrict]?.secteurs ?? [])]
     : ["Tous"];
 
   const activeFilterCount = [
@@ -3930,7 +4673,7 @@ function Rapports({ contribuables, recettesData }: { contribuables: Contribuable
           }))
           .sort((a, b) => b.contribuables - a.contribuables);
       })()
-    : Object.entries(SP_STATS).map(([, sp]) => ({
+    : Object.entries(spStats).map(([, sp]) => ({
         nom: sp.label,
         contribuables: sp.contribuables,
         taux: sp.taux,
@@ -3984,7 +4727,7 @@ function Rapports({ contribuables, recettesData }: { contribuables: Contribuable
           data={indicateursData}
           columns={indicateursColumns}
           filename={`rapport-${filtreCommune !== "Toutes" ? filtreCommune.replace(/\s+/g, "-") + "-" : ""}${period}-${new Date().toISOString().split("T")[0]}`}
-          title="Rapport de Performance - SNRR Mamou"
+          title={`Rapport de Performance - SNRR ${communeName}`}
           subtitle={`Période: ${period} | Zone: ${filtreCommune} | ${filtered.length} contribuables`}
           metadata={{
             "Date de génération": new Date().toLocaleDateString("fr-FR"),
@@ -3993,7 +4736,7 @@ function Rapports({ contribuables, recettesData }: { contribuables: Contribuable
             "District": filtreDistrict,
             "Secteur": filtreSecteur,
             "Agent": filtreAgent,
-            "Généré par": "Système SNRR-Mamou",
+            "Généré par": `Système SNRR — ${communeName}`,
           }}
           variant="default"
         />
@@ -4103,7 +4846,7 @@ function Rapports({ contribuables, recettesData }: { contribuables: Contribuable
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-card border border-border rounded-sm p-5">
           <h3 className="text-xs uppercase tracking-widest text-muted-foreground font-mono mb-6">
-            {filtreCommune !== "Toutes" ? `Districts — ${SP_STATS[filtreCommune]?.label}` : "Taux de recouvrement par commune"}
+            {filtreCommune !== "Toutes" ? `Districts — ${spStats[filtreCommune]?.label}` : "Taux de recouvrement par commune"}
           </h3>
           <SvgHBar data={byCommune.slice(0, 8)} height={220} />
         </div>
@@ -4143,7 +4886,7 @@ function Rapports({ contribuables, recettesData }: { contribuables: Contribuable
               ].map(r => `<tr class="${r.ind === "Total" ? "total-row" : ""}"><td>${r.ind}</td><td style="text-align:right">${fmtShort(r.prev)}</td><td style="text-align:right;font-weight:bold">${fmtShort(r.real)}</td><td style="text-align:right;color:${r.real >= r.prev ? "#15803d" : "#b91c1c"}">${fmtShort(r.real - r.prev)}</td><td style="text-align:center">${r.taux}%</td></tr>`).join("");
               printSection({
                 title: "Indicateurs de Performance — Juin 2024",
-                subtitle: "Commune de Mamou · SNRR-Mamou",
+                subtitle: `${communeName} · Système SNRR`,
                 html: `<table><thead><tr><th>Indicateur</th><th>Prévu</th><th>Réalisé</th><th>Écart</th><th>Taux</th></tr></thead><tbody>${rows}</tbody></table>`,
               });
             }} className="flex items-center gap-1 text-xs font-mono border border-border px-2 py-1 rounded-sm hover:bg-secondary transition-colors">
@@ -4191,145 +4934,780 @@ function Rapports({ contribuables, recettesData }: { contribuables: Contribuable
   );
 }
 
-// ─── Utilisateurs ───────────────────────────────────────────────��─────────────
-function Utilisateurs({ utilisateurs, onAdd, onEdit, onDelete, canCreate, canEdit, canDelete }: {
-  utilisateurs: Utilisateur[]; onAdd: () => void; onEdit: (u: Utilisateur) => void; onDelete: (u: Utilisateur) => void;
+// ─── Utilisateurs (Fleetio-style) ────────────────────────────────────────────
+const ROLE_META: Record<string, { color: string; bg: string; icon: string; desc: string }> = {
+  "Administrateur":      { color: "#1B3A6B", bg: "#EEF2F8", icon: "A", desc: "Accès complet à tous les modules" },
+  "Maire":               { color: "#7C3AED", bg: "#F5F0FF", icon: "M", desc: "Vue générale, validation, rapports" },
+  "Receveur municipal":  { color: "#065F46", bg: "#ECFDF5", icon: "R", desc: "Paiements, taxation, recouvrement" },
+  "Superviseur":         { color: "#B45309", bg: "#FFFBEB", icon: "S", desc: "Supervision agents, rapports" },
+  "Agent recenseur":     { color: "#0369A1", bg: "#EFF6FF", icon: "AR", desc: "Recensement, cartographie" },
+  "Agent recouvrement":  { color: "#9D174D", bg: "#FFF1F2", icon: "AC", desc: "Collecte paiements, terrain" },
+};
+
+// ─── Reset Password Modal ────────────────────────────────────────────────────
+function ResetPasswordModal({ user, onClose, onReset }: {
+  user: Utilisateur;
+  onClose: () => void;
+  onReset: (userId: string, newPassword: string) => void;
+}) {
+  const generated = () => {
+    const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789@#$!";
+    return Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+  };
+  const [password, setPassword] = useState(generated);
+  const [copied, setCopied] = useState(false);
+  const [done, setDone] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(password).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+  };
+
+  const handleConfirm = () => {
+    onReset(user.id, password);
+    setDone(true);
+  };
+
+  const meta = ROLE_META[user.role] ?? { color: "#1B3A6B", bg: "#EEF2F8" };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-card border border-border rounded-sm w-full max-w-md shadow-xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <div>
+            <h2 className="text-sm font-semibold">Réinitialiser le mot de passe</h2>
+            <p className="text-xs text-muted-foreground font-mono mt-0.5">{user.prenom} {user.nom}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-secondary rounded-sm text-muted-foreground transition-colors"><X size={15} /></button>
+        </div>
+        <div className="p-6 space-y-5">
+          {done ? (
+            <div className="text-center py-6 space-y-3">
+              <div className="w-14 h-14 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center mx-auto">
+                <CheckCircle2 size={26} className="text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">Mot de passe réinitialisé !</p>
+                <p className="text-xs text-muted-foreground font-mono mt-1">L'utilisateur devra changer son mot de passe à la prochaine connexion.</p>
+              </div>
+              <button onClick={onClose} className="px-5 py-2 text-xs font-mono bg-primary text-primary-foreground rounded-sm hover:opacity-90 transition-opacity">Fermer</button>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-3 p-3 rounded-sm" style={{ background: meta.bg }}>
+                <div className="w-10 h-10 rounded-sm flex items-center justify-center text-sm font-bold text-white font-mono" style={{ background: meta.color }}>
+                  {user.prenom[0]}{user.nom[0]}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold">{user.prenom} {user.nom}</p>
+                  <p className="text-xs font-mono text-muted-foreground">{user.email}</p>
+                </div>
+              </div>
+              <div>
+                <label className="block text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-2">Nouveau mot de passe généré</label>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 px-4 py-3 text-sm font-mono bg-background border border-border rounded-sm tracking-widest text-foreground select-all">
+                    {password}
+                  </code>
+                  <button onClick={handleCopy}
+                    className={`px-3 py-3 text-xs font-mono rounded-sm border transition-all whitespace-nowrap ${copied ? "border-emerald-300 text-emerald-700 bg-emerald-50" : "border-border text-muted-foreground hover:border-primary/40 hover:text-primary"}`}>
+                    {copied ? <CheckCircle2 size={14} /> : <Save size={14} />}
+                  </button>
+                  <button onClick={() => setPassword(generated())}
+                    className="px-3 py-3 text-xs font-mono rounded-sm border border-border text-muted-foreground hover:border-primary/40 hover:text-primary transition-all">
+                    <RefreshCw size={14} />
+                  </button>
+                </div>
+                <p className="text-[10px] font-mono text-muted-foreground mt-1.5">Copiez ce mot de passe avant de confirmer — il ne sera plus affiché.</p>
+              </div>
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-sm">
+                <p className="text-[11px] font-mono text-amber-700 flex items-center gap-2">
+                  <AlertTriangle size={12} className="shrink-0" />
+                  L'utilisateur sera déconnecté et devra utiliser ce mot de passe temporaire.
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <button onClick={onClose} className="flex-1 py-2.5 text-sm font-mono border border-border rounded-sm hover:bg-secondary transition-colors text-muted-foreground">Annuler</button>
+                <button onClick={handleConfirm} className="flex-1 py-2.5 text-sm font-mono bg-amber-600 text-white rounded-sm hover:opacity-90 transition-opacity">
+                  Confirmer la réinitialisation
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Configure Access Modal ───────────────────────────────────────────────────
+const ALL_PERMISSIONS: { key: string; label: string; module: string }[] = [
+  { key: "view_dashboard", label: "Voir le tableau de bord", module: "Dashboard" },
+  { key: "view_recensement", label: "Voir le recensement", module: "Recensement" },
+  { key: "create_recensement", label: "Créer des contribuables", module: "Recensement" },
+  { key: "edit_recensement", label: "Modifier des contribuables", module: "Recensement" },
+  { key: "delete_recensement", label: "Supprimer des contribuables", module: "Recensement" },
+  { key: "view_taxation", label: "Voir la taxation", module: "Taxation" },
+  { key: "create_taxation", label: "Créer des taxes", module: "Taxation" },
+  { key: "edit_taxation", label: "Modifier des taxes", module: "Taxation" },
+  { key: "delete_taxation", label: "Supprimer des taxes", module: "Taxation" },
+  { key: "view_paiements", label: "Voir les paiements", module: "Paiements" },
+  { key: "create_paiements", label: "Enregistrer un paiement", module: "Paiements" },
+  { key: "validate_paiements", label: "Valider un paiement", module: "Paiements" },
+  { key: "cancel_paiements", label: "Annuler un paiement", module: "Paiements" },
+  { key: "view_cartographie", label: "Voir la cartographie", module: "Cartographie" },
+  { key: "view_rapports", label: "Voir les rapports", module: "Rapports" },
+  { key: "export_rapports", label: "Exporter les données", module: "Rapports" },
+  { key: "view_business_intelligence", label: "Voir le Business Intelligence", module: "Rapports" },
+  { key: "view_exercice_fiscal", label: "Voir l'exercice fiscal", module: "Rapports" },
+  { key: "edit_exercice_fiscal", label: "Modifier l'exercice fiscal", module: "Rapports" },
+  { key: "view_utilisateurs", label: "Voir les utilisateurs", module: "Administration" },
+  { key: "create_utilisateurs", label: "Créer des comptes", module: "Administration" },
+  { key: "edit_utilisateurs", label: "Modifier des comptes", module: "Administration" },
+  { key: "delete_utilisateurs", label: "Supprimer des comptes", module: "Administration" },
+  { key: "view_securite", label: "Voir les logs de sécurité", module: "Administration" },
+  { key: "manage_securite", label: "Gérer la sécurité", module: "Administration" },
+  { key: "view_parametres", label: "Voir les paramètres", module: "Administration" },
+  { key: "edit_parametres", label: "Modifier les paramètres", module: "Administration" },
+  { key: "view_notifications", label: "Voir les notifications", module: "Notifications" },
+  { key: "send_notifications", label: "Envoyer des notifications", module: "Notifications" },
+];
+
+function ConfigureAccessModal({ user, onClose, onSave }: {
+  user: Utilisateur;
+  onClose: () => void;
+  onSave: (userId: string, permissions: string[]) => void;
+}) {
+  const roleDefaults = ROLE_PERMISSIONS[user.role as Role] ?? [];
+  const [overrides, setOverrides] = useState<string[]>(user.permissions ?? roleDefaults);
+
+  const modules = Array.from(new Set(ALL_PERMISSIONS.map(p => p.module)));
+
+  const toggle = (key: string) => {
+    setOverrides(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+  };
+
+  const resetToRole = () => setOverrides(roleDefaults);
+  const grantAll = () => setOverrides(ALL_PERMISSIONS.map(p => p.key));
+  const revokeAll = () => setOverrides([]);
+
+  const meta = ROLE_META[user.role] ?? { color: "#1B3A6B", bg: "#EEF2F8", desc: "" };
+  const changed = JSON.stringify([...overrides].sort()) !== JSON.stringify([...roleDefaults].sort());
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-card border border-border rounded-sm w-full max-w-xl shadow-xl flex flex-col max-h-[90vh]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
+          <div>
+            <h2 className="text-sm font-semibold">Configurer les accès</h2>
+            <p className="text-xs text-muted-foreground font-mono mt-0.5">{user.prenom} {user.nom} · <span style={{ color: meta.color }}>{user.role}</span></p>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-secondary rounded-sm text-muted-foreground transition-colors"><X size={15} /></button>
+        </div>
+
+        <div className="px-6 py-3 border-b border-border bg-secondary/30 shrink-0 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className={`text-[10px] font-mono px-2 py-0.5 rounded-sm border ${changed ? "border-amber-300 text-amber-700 bg-amber-50" : "border-border text-muted-foreground"}`}>
+              {changed ? "Permissions personnalisées" : "Permissions par rôle"}
+            </span>
+            <span className="text-[10px] font-mono text-muted-foreground">{overrides.length}/{ALL_PERMISSIONS.length} actives</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button onClick={resetToRole} className="px-2 py-1 text-[10px] font-mono border border-border rounded-sm hover:bg-secondary text-muted-foreground transition-colors">Réinitialiser au rôle</button>
+            <button onClick={grantAll} className="px-2 py-1 text-[10px] font-mono border border-emerald-300 rounded-sm hover:bg-emerald-50 text-emerald-700 transition-colors">Tout activer</button>
+            <button onClick={revokeAll} className="px-2 py-1 text-[10px] font-mono border border-red-200 rounded-sm hover:bg-red-50 text-destructive transition-colors">Tout révoquer</button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+          {modules.map(mod => {
+            const perms = ALL_PERMISSIONS.filter(p => p.module === mod);
+            const activeCount = perms.filter(p => overrides.includes(p.key)).length;
+            return (
+              <div key={mod}>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{mod}</p>
+                  <span className="text-[9px] font-mono text-muted-foreground">{activeCount}/{perms.length}</span>
+                </div>
+                <div className="space-y-1">
+                  {perms.map(p => {
+                    const isActive = overrides.includes(p.key);
+                    const isDefault = roleDefaults.includes(p.key);
+                    return (
+                      <label key={p.key} className={`flex items-center gap-3 px-3 py-2 rounded-sm cursor-pointer transition-colors ${isActive ? "bg-primary/5 border border-primary/15" : "bg-background border border-border/50 hover:border-border"}`}>
+                        <div className={`w-4 h-4 rounded-sm border flex items-center justify-center shrink-0 transition-colors ${isActive ? "bg-primary border-primary" : "border-border"}`}
+                          onClick={() => toggle(p.key)}>
+                          {isActive && <CheckCircle2 size={10} className="text-white" />}
+                        </div>
+                        <span className="text-xs font-mono flex-1" onClick={() => toggle(p.key)}>{p.label}</span>
+                        {!isDefault && isActive && <span className="text-[9px] font-mono text-emerald-600 px-1.5 py-0.5 bg-emerald-50 rounded-sm border border-emerald-200">+</span>}
+                        {isDefault && !isActive && <span className="text-[9px] font-mono text-amber-600 px-1.5 py-0.5 bg-amber-50 rounded-sm border border-amber-200">retiré</span>}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="px-6 py-4 border-t border-border shrink-0 flex gap-3">
+          <button onClick={onClose} className="flex-1 py-2.5 text-sm font-mono border border-border rounded-sm hover:bg-secondary transition-colors text-muted-foreground">Annuler</button>
+          <button onClick={() => { onSave(user.id, overrides); onClose(); }}
+            className="flex-1 py-2.5 text-sm font-mono bg-primary text-primary-foreground rounded-sm hover:opacity-90 transition-opacity">
+            Enregistrer les accès
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── User Detail Modal ────────────────────────────────────────────────────────
+function UserDetailModal({ user, onClose, onEdit, onResetPassword, onToggleStatut, onDelete }: {
+  user: Utilisateur;
+  onClose: () => void;
+  onEdit: () => void;
+  onResetPassword: () => void;
+  onToggleStatut: () => void;
+  onDelete: () => void;
+}) {
+  const meta = ROLE_META[user.role] ?? { color: "#1B3A6B", bg: "#EEF2F8", icon: user.nom[0], desc: "" };
+  const rolePerms = ROLE_PERMISSIONS[user.role as Role] ?? [];
+  const effectivePerms = user.permissions ?? rolePerms;
+  const hasOverrides = user.permissions !== undefined;
+
+  const modules = Array.from(new Set(ALL_PERMISSIONS.map(p => p.module)));
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-card border border-border rounded-sm w-full max-w-lg shadow-xl flex flex-col max-h-[90vh]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
+          <h2 className="text-sm font-semibold">Fiche utilisateur</h2>
+          <button onClick={onClose} className="p-1.5 hover:bg-secondary rounded-sm text-muted-foreground transition-colors"><X size={15} /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {/* Profile header */}
+          <div className="px-6 py-5 border-b border-border" style={{ background: meta.bg }}>
+            <div className="flex items-center gap-4">
+              <div className="w-16 h-16 rounded-sm flex items-center justify-center text-xl font-bold text-white font-mono shrink-0" style={{ background: meta.color }}>
+                {user.prenom[0]}{user.nom[0]}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-base font-semibold">{user.prenom} {user.nom}</h3>
+                  <span className={`text-[10px] font-mono px-2 py-0.5 rounded-sm border ${user.statut === "Actif" ? "border-emerald-200 text-emerald-700 bg-emerald-50" : "border-amber-200 text-amber-700 bg-amber-50"}`}>{user.statut}</span>
+                  {user.motDePasseReset && <span className="text-[10px] font-mono px-2 py-0.5 rounded-sm border border-amber-300 text-amber-700 bg-amber-50">MDP temporaire</span>}
+                </div>
+                {user.identifiant && <p className="text-xs font-mono mt-0.5" style={{ color: meta.color }}>@{user.identifiant}</p>}
+                <div className="flex items-center gap-1.5 mt-1">
+                  <span className="w-2 h-2 rounded-full" style={{ background: meta.color }} />
+                  <span className="text-xs font-mono font-semibold" style={{ color: meta.color }}>{user.role}</span>
+                </div>
+                <p className="text-[10px] font-mono text-muted-foreground mt-0.5">{meta.desc}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-6 space-y-5">
+            {/* Contact info */}
+            <div className="grid grid-cols-2 gap-4">
+              {[
+                { icon: <Mail size={12} />, label: "Email", value: user.email },
+                { icon: <Phone size={12} />, label: "Téléphone", value: user.telephone || "—" },
+                { icon: <Clock size={12} />, label: "Dernière connexion", value: user.derniere },
+                { icon: <Users size={12} />, label: "Membre depuis", value: user.dateCreation },
+              ].map(item => (
+                <div key={item.label} className="p-3 bg-background border border-border rounded-sm">
+                  <p className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-1 mb-1">
+                    {item.icon} {item.label}
+                  </p>
+                  <p className="text-xs font-mono text-foreground truncate">{item.value}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Permissions summary */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Permissions</p>
+                {hasOverrides && <span className="text-[9px] font-mono text-amber-600 px-1.5 py-0.5 bg-amber-50 border border-amber-200 rounded-sm">Personnalisées</span>}
+              </div>
+              <div className="space-y-2">
+                {modules.map(mod => {
+                  const perms = ALL_PERMISSIONS.filter(p => p.module === mod);
+                  const activePerms = perms.filter(p => effectivePerms.includes(p.key));
+                  if (activePerms.length === 0) return null;
+                  return (
+                    <div key={mod} className="flex items-start gap-3 p-2.5 bg-background border border-border rounded-sm">
+                      <p className="text-[10px] font-mono text-muted-foreground w-24 shrink-0 mt-0.5">{mod}</p>
+                      <div className="flex flex-wrap gap-1">
+                        {activePerms.map(p => (
+                          <span key={p.key} className="text-[9px] font-mono px-1.5 py-0.5 bg-primary/8 text-primary border border-primary/20 rounded-sm">{p.label}</span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Actions footer */}
+        <div className="px-6 py-4 border-t border-border shrink-0">
+          <div className="grid grid-cols-2 gap-2 mb-2">
+            <button onClick={onEdit} className="flex items-center justify-center gap-2 py-2 text-xs font-mono border border-primary/40 text-primary rounded-sm hover:bg-primary/6 transition-colors">
+              <Edit2 size={12} /> Modifier
+            </button>
+            <button onClick={onResetPassword} className="flex items-center justify-center gap-2 py-2 text-xs font-mono border border-amber-300 text-amber-700 rounded-sm hover:bg-amber-50 transition-colors">
+              <Lock size={12} /> Réinitialiser MDP
+            </button>
+            <button onClick={onToggleStatut} className={`flex items-center justify-center gap-2 py-2 text-xs font-mono border rounded-sm transition-colors ${user.statut === "Actif" ? "border-orange-300 text-orange-700 hover:bg-orange-50" : "border-emerald-300 text-emerald-700 hover:bg-emerald-50"}`}>
+              <UserCheck size={12} /> {user.statut === "Actif" ? "Suspendre" : "Réactiver"}
+            </button>
+            <button onClick={onDelete} className="flex items-center justify-center gap-2 py-2 text-xs font-mono border border-red-200 text-destructive rounded-sm hover:bg-red-50 transition-colors">
+              <Trash2 size={12} /> Supprimer
+            </button>
+          </div>
+          <button onClick={onClose} className="w-full py-2 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors">Fermer</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InviteModal({ onClose, onInvite }: { onClose: () => void; onInvite: (email: string, role: string) => void }) {
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState("Agent recenseur");
+  const [nom, setNom] = useState("");
+  const [prenom, setPrenom] = useState("");
+  const [sent, setSent] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || !nom) return;
+    setLoading(true);
+    setTimeout(() => { setSent(true); setLoading(false); onInvite(email, role); }, 1000);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-card border border-border rounded-sm w-full max-w-md shadow-xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <div>
+            <h2 className="text-sm font-semibold">Inviter un membre</h2>
+            <p className="text-xs text-muted-foreground font-mono mt-0.5">Un lien d'activation sera envoyé par email</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-secondary rounded-sm text-muted-foreground transition-colors"><X size={15} /></button>
+        </div>
+        <div className="p-6">
+          {sent ? (
+            <div className="text-center py-6 space-y-3">
+              <div className="w-14 h-14 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center mx-auto">
+                <CheckCircle2 size={26} className="text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">Invitation envoyée !</p>
+                <p className="text-xs text-muted-foreground font-mono mt-1">{email}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Rôle attribué : <span className="font-medium" style={{ color: ROLE_META[role]?.color }}>{role}</span></p>
+              </div>
+              <button onClick={onClose} className="mt-2 px-5 py-2 text-xs font-mono bg-primary text-primary-foreground rounded-sm hover:opacity-90 transition-opacity">Fermer</button>
+            </div>
+          ) : (
+            <form onSubmit={submit} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">Prénom *</label>
+                  <input className="w-full px-3 py-2 text-sm bg-background border border-border rounded-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                    value={prenom} onChange={e => setPrenom(e.target.value)} placeholder="Amadou" autoFocus />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">Nom *</label>
+                  <input className="w-full px-3 py-2 text-sm bg-background border border-border rounded-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                    value={nom} onChange={e => setNom(e.target.value)} placeholder="Diallo" required />
+                </div>
+              </div>
+              <div>
+                <label className="block text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">Email *</label>
+                <input type="email" required className="w-full px-3 py-2 text-sm bg-background border border-border rounded-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                  value={email} onChange={e => setEmail(e.target.value)} placeholder="agent@commune.gn" />
+              </div>
+              <div>
+                <label className="block text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">Rôle</label>
+                <select className="w-full px-3 py-2 text-sm bg-background border border-border rounded-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary appearance-none"
+                  value={role} onChange={e => setRole(e.target.value)}>
+                  {Object.keys(ROLE_META).map(r => <option key={r}>{r}</option>)}
+                </select>
+                {ROLE_META[role] && (
+                  <p className="text-[10px] font-mono text-muted-foreground mt-1.5 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full inline-block" style={{ background: ROLE_META[role].color }} />
+                    {ROLE_META[role].desc}
+                  </p>
+                )}
+              </div>
+              <button type="submit" disabled={loading}
+                className="w-full py-2.5 text-sm font-mono font-semibold bg-primary text-primary-foreground rounded-sm hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2">
+                {loading ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Envoi…</> : <>Envoyer l'invitation</>}
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Utilisateurs({
+  utilisateurs,
+  onAdd, onEdit, onDelete, onView, onResetPassword, onConfigureAccess, onToggleStatut,
+  canCreate, canEdit, canDelete,
+}: {
+  utilisateurs: Utilisateur[];
+  onAdd: () => void;
+  onEdit: (u: Utilisateur) => void;
+  onDelete: (u: Utilisateur) => void;
+  onView: (u: Utilisateur) => void;
+  onResetPassword: (u: Utilisateur) => void;
+  onConfigureAccess: (u: Utilisateur) => void;
+  onToggleStatut: (u: Utilisateur) => void;
   canCreate?: boolean; canEdit?: boolean; canDelete?: boolean;
 }) {
   const [search, setSearch] = useState("");
-  const filtered = utilisateurs.filter((u) => `${u.nom} ${u.prenom} ${u.email} ${u.role}`.toLowerCase().includes(search.toLowerCase()));
+  const [roleFilter, setRoleFilter] = useState("Tous");
+  const [statutFilter, setStatutFilter] = useState("Tous");
+  const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
+  const [showInvite, setShowInvite] = useState(false);
+  const [invited, setInvited] = useState<{ email: string; role: string; nom: string }[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const roles = ["Tous", ...Array.from(new Set(utilisateurs.map(u => u.role)))];
+
+  const filtered = utilisateurs.filter(u => {
+    const q = search.toLowerCase();
+    const matchQ = `${u.nom} ${u.prenom} ${u.email} ${u.role} ${u.identifiant ?? ""}`.toLowerCase().includes(q);
+    const matchR = roleFilter === "Tous" || u.role === roleFilter;
+    const matchS = statutFilter === "Tous" || u.statut === statutFilter;
+    return matchQ && matchR && matchS;
+  });
+
+  const actifs = utilisateurs.filter(u => u.statut === "Actif").length;
+  const inactifs = utilisateurs.filter(u => u.statut === "Inactif").length;
+
+  const toggleSelect = (id: string) => setSelected(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
+  const selectAll = () => setSelected(new Set(filtered.map(u => u.id)));
+  const clearSelected = () => setSelected(new Set());
+
+  const handleInvite = (email: string, role: string) => {
+    const nom = email.split("@")[0].split(".").map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(" ");
+    setInvited(prev => [...prev, { email, role, nom }]);
+  };
 
   const utilisateursColumns: ExportColumn[] = [
-    { header: "ID", key: "id", width: 20 },
-    { header: "Nom", key: "nom", width: 30 },
-    { header: "Prénom", key: "prenom", width: 30 },
-    { header: "Email", key: "email", width: 40 },
-    { header: "Rôle", key: "role", width: 30 },
-    { header: "Téléphone", key: "telephone", width: 25 },
-    { header: "Statut", key: "statut", width: 20 },
+    { header: "Nom", key: "nom", width: 30 }, { header: "Prénom", key: "prenom", width: 30 },
+    { header: "Email", key: "email", width: 40 }, { header: "Rôle", key: "role", width: 30 },
+    { header: "Téléphone", key: "telephone", width: 25 }, { header: "Statut", key: "statut", width: 20 },
     { header: "Date création", key: "dateCreation", width: 25 },
   ];
 
   return (
     <div className="space-y-5">
+      {showInvite && <InviteModal onClose={() => setShowInvite(false)} onInvite={handleInvite} />}
+
+      {/* Stats strip */}
+      <div className="grid grid-cols-4 gap-3">
+        {[
+          { label: "Membres", value: utilisateurs.length, color: "text-primary", sub: "total comptes", onClick: () => setStatutFilter("Tous") },
+          { label: "Actifs", value: actifs, color: "text-emerald-700", sub: "accès actif", onClick: () => setStatutFilter("Actif") },
+          { label: "Inactifs", value: inactifs, color: "text-amber-700", sub: "accès suspendu", onClick: () => setStatutFilter("Inactif") },
+          { label: "En attente", value: invited.length, color: "text-violet-700", sub: "invitation envoyée", onClick: () => {} },
+        ].map(s => (
+          <button key={s.label} onClick={s.onClick} className="bg-card border border-border rounded-sm px-4 py-3 text-left hover:border-primary/30 transition-colors">
+            <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{s.label}</p>
+            <p className={`text-2xl font-bold mt-0.5 ${s.color}`}>{s.value}</p>
+            <p className="text-[10px] font-mono text-muted-foreground mt-0.5">{s.sub}</p>
+          </button>
+        ))}
+      </div>
+
+      {/* Bulk action bar */}
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 px-4 py-2.5 bg-primary/8 border border-primary/20 rounded-sm">
+          <span className="text-xs font-mono text-primary font-semibold">{selected.size} sélectionné{selected.size > 1 ? "s" : ""}</span>
+          <div className="flex items-center gap-1.5 ml-2">
+            <button onClick={() => { filtered.filter(u => selected.has(u.id)).forEach(u => onToggleStatut(u)); clearSelected(); }}
+              className="px-2.5 py-1 text-[10px] font-mono border border-amber-300 text-amber-700 rounded-sm hover:bg-amber-50 transition-colors">
+              Basculer statut
+            </button>
+            {canDelete !== false && (
+              <button onClick={() => { filtered.filter(u => selected.has(u.id)).forEach(u => onDelete(u)); clearSelected(); }}
+                className="px-2.5 py-1 text-[10px] font-mono border border-red-200 text-destructive rounded-sm hover:bg-red-50 transition-colors">
+                Supprimer la sélection
+              </button>
+            )}
+          </div>
+          <button onClick={clearSelected} className="ml-auto text-muted-foreground hover:text-foreground transition-colors"><X size={13} /></button>
+        </div>
+      )}
+
+      {/* Toolbar */}
       <div className="flex items-center gap-3 flex-wrap justify-between">
-        <div className="relative max-w-sm flex-1">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <input type="text" placeholder="Nom, email, rôle…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9 pr-4 py-2 text-sm bg-card border border-border rounded-sm font-mono w-full focus:outline-none focus:ring-1 focus:ring-primary" />
+        <div className="flex items-center gap-2 flex-wrap flex-1">
+          <div className="relative max-w-xs flex-1 min-w-[200px]">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <input type="text" placeholder="Nom, email, identifiant…" value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="pl-8 pr-4 py-2 text-xs bg-card border border-border rounded-sm font-mono w-full focus:outline-none focus:ring-1 focus:ring-primary" />
+          </div>
+          <div className="flex items-center gap-1 flex-wrap">
+            {roles.map(r => (
+              <button key={r} onClick={() => setRoleFilter(r)}
+                className={`px-2.5 py-1 text-[10px] font-mono rounded-sm border transition-all ${roleFilter === r ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
+                {r}
+              </button>
+            ))}
+            {statutFilter !== "Tous" && (
+              <button onClick={() => setStatutFilter("Tous")}
+                className="px-2.5 py-1 text-[10px] font-mono rounded-sm border border-amber-300 bg-amber-50 text-amber-700 flex items-center gap-1">
+                {statutFilter} <X size={9} />
+              </button>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-2">
-          <ExportButton
-            data={filtered}
-            columns={utilisateursColumns}
-            filename={`utilisateurs-snrr-${new Date().toISOString().split('T')[0]}`}
-            title="Liste des Utilisateurs - SNRR Mamou"
-            subtitle={`${filtered.length} utilisateurs enregistrés`}
-            metadata={{
-              "Date d'export": new Date().toLocaleDateString('fr-FR'),
-              "Total utilisateurs": filtered.length.toString()
-            }}
-            variant="compact"
-          />
-          <button onClick={() => {
-            const rows = filtered.map(u => `
-              <tr>
-                <td>${u.id}</td>
-                <td>${u.nom} ${u.prenom}</td>
-                <td>${u.email}</td>
-                <td>${u.role}</td>
-                <td>${u.telephone}</td>
-                <td class="badge-${u.statut === "Actif" ? "paye" : "arriere"}">${u.statut}</td>
-                <td>${u.derniere}</td>
-              </tr>`).join("");
-            printSection({
-              title: "Registre des Utilisateurs",
-              subtitle: `${filtered.length} comptes enregistrés`,
-              html: `<table><thead><tr><th>ID</th><th>Nom complet</th><th>Email</th><th>Rôle</th><th>Téléphone</th><th>Statut</th><th>Dernière connexion</th></tr></thead><tbody>${rows}</tbody></table>`,
-              landscape: true,
-            });
-          }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono border border-border rounded-sm hover:bg-secondary transition-colors bg-card whitespace-nowrap">
-            <Printer size={12} /> Imprimer
-          </button>
-          {canCreate !== false && (
-            <button onClick={onAdd} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary text-primary-foreground rounded-sm hover:opacity-90 transition-opacity whitespace-nowrap">
-              <Plus size={12} /> Ajouter un utilisateur
+          <div className="flex border border-border rounded-sm overflow-hidden">
+            <button onClick={() => setViewMode("grid")} className={`p-1.5 transition-colors ${viewMode === "grid" ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary/50"}`} title="Vue cartes">
+              <LayoutDashboard size={13} />
             </button>
+            <button onClick={() => setViewMode("table")} className={`p-1.5 transition-colors ${viewMode === "table" ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary/50"}`} title="Vue table">
+              <FileBarChart2 size={13} />
+            </button>
+          </div>
+          <ExportButton data={filtered} columns={utilisateursColumns}
+            filename={`membres-snrr-${new Date().toISOString().split('T')[0]}`}
+            title="Registre des Membres" subtitle={`${filtered.length} comptes`}
+            metadata={{ "Date d'export": new Date().toLocaleDateString('fr-FR') }}
+            variant="compact" />
+          {canCreate !== false && (<>
+            <button onClick={() => setShowInvite(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono border border-primary/40 text-primary rounded-sm hover:bg-primary/6 transition-colors whitespace-nowrap">
+              <Mail size={12} /> Inviter
+            </button>
+            <button onClick={onAdd}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary text-primary-foreground rounded-sm hover:opacity-90 transition-opacity whitespace-nowrap">
+              <Plus size={12} /> Créer un compte
+            </button>
+          </>)}
+        </div>
+      </div>
+
+      {/* Pending invitations */}
+      {invited.length > 0 && (
+        <div className="bg-violet-50 border border-violet-200 rounded-sm px-4 py-3">
+          <p className="text-xs font-mono font-semibold text-violet-700 mb-2">{invited.length} invitation(s) en attente</p>
+          <div className="flex flex-wrap gap-2">
+            {invited.map((inv, i) => (
+              <div key={i} className="flex items-center gap-2 px-3 py-1.5 bg-white border border-violet-200 rounded-sm text-xs font-mono">
+                <span className="w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
+                <span className="text-violet-800">{inv.email}</span>
+                <span className="text-violet-400">·</span>
+                <span className="text-muted-foreground">{inv.role}</span>
+                <button onClick={() => setInvited(p => p.filter((_, j) => j !== i))} className="text-muted-foreground hover:text-destructive transition-colors"><X size={10} /></button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── GRID VIEW ── */}
+      {viewMode === "grid" && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filtered.map(u => {
+            const meta = ROLE_META[u.role] ?? { color: "#1B3A6B", bg: "#EEF2F8", icon: u.nom[0], desc: "" };
+            const isSelected = selected.has(u.id);
+            return (
+              <div key={u.id} className={`bg-card border rounded-sm p-5 flex flex-col gap-3 transition-all ${isSelected ? "border-primary/50 shadow-sm ring-1 ring-primary/20" : "border-border hover:border-primary/30 hover:shadow-sm"}`}>
+                {/* Header */}
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="relative cursor-pointer" onClick={() => toggleSelect(u.id)}>
+                      <div className="w-11 h-11 rounded-sm flex items-center justify-center text-sm font-bold text-white font-mono shrink-0"
+                        style={{ background: meta.color }}>
+                        {isSelected ? <CheckCircle2 size={18} className="text-white" /> : <>{u.prenom[0]}{u.nom[0]}</>}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold leading-tight">{u.prenom} {u.nom}</p>
+                      {u.identifiant && <p className="text-[10px] font-mono text-primary/70">@{u.identifiant}</p>}
+                      {u.motDePasseReset && <p className="text-[9px] font-mono text-amber-600 mt-0.5">MDP temporaire</p>}
+                    </div>
+                  </div>
+                  <span className={`text-[10px] font-mono px-2 py-0.5 rounded-sm border cursor-pointer select-none transition-colors ${u.statut === "Actif" ? "border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100" : "border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100"}`}
+                    onClick={() => onToggleStatut(u)} title="Cliquer pour changer le statut">
+                    {u.statut}
+                  </span>
+                </div>
+
+                {/* Role pill */}
+                <div className="flex items-center gap-2 px-3 py-2 rounded-sm" style={{ background: meta.bg }}>
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ background: meta.color }} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] font-mono font-semibold" style={{ color: meta.color }}>{u.role}</p>
+                    <p className="text-[9px] font-mono text-muted-foreground leading-tight truncate">{meta.desc}</p>
+                  </div>
+                  {u.permissions && <span className="text-[9px] font-mono text-amber-600 px-1 bg-amber-50 border border-amber-200 rounded-sm shrink-0">custom</span>}
+                </div>
+
+                {/* Contact */}
+                <div className="space-y-1">
+                  <p className="text-[11px] font-mono text-muted-foreground flex items-center gap-2 truncate">
+                    <Mail size={10} className="shrink-0" /> {u.email}
+                  </p>
+                  {u.telephone && (
+                    <p className="text-[11px] font-mono text-muted-foreground flex items-center gap-2">
+                      <Phone size={10} className="shrink-0" /> {u.telephone}
+                    </p>
+                  )}
+                  <p className="text-[9px] font-mono text-muted-foreground/60 flex items-center gap-1">
+                    <Clock size={8} /> {u.derniere}
+                  </p>
+                </div>
+
+                {/* Action buttons — always visible */}
+                <div className="pt-2 border-t border-border/60 grid grid-cols-3 gap-1">
+                  <button onClick={() => onView(u)} title="Voir le profil"
+                    className="flex items-center justify-center gap-1 py-1.5 text-[10px] font-mono rounded-sm border border-border text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors">
+                    <Eye size={11} /> Profil
+                  </button>
+                  {canEdit !== false ? (
+                    <button onClick={() => onEdit(u)} title="Modifier"
+                      className="flex items-center justify-center gap-1 py-1.5 text-[10px] font-mono rounded-sm border border-border text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors">
+                      <Edit2 size={11} /> Modifier
+                    </button>
+                  ) : <div />}
+                  <button onClick={() => onResetPassword(u)} title="Réinitialiser le mot de passe"
+                    className="flex items-center justify-center gap-1 py-1.5 text-[10px] font-mono rounded-sm border border-border text-muted-foreground hover:border-amber-300 hover:text-amber-700 transition-colors">
+                    <Lock size={11} /> MDP
+                  </button>
+                  <button onClick={() => onConfigureAccess(u)} title="Configurer les accès"
+                    className="flex items-center justify-center gap-1 py-1.5 text-[10px] font-mono rounded-sm border border-border text-muted-foreground hover:border-violet-300 hover:text-violet-700 transition-colors">
+                    <ShieldCheck size={11} /> Accès
+                  </button>
+                  <button onClick={() => onToggleStatut(u)} title={u.statut === "Actif" ? "Suspendre" : "Réactiver"}
+                    className={`flex items-center justify-center gap-1 py-1.5 text-[10px] font-mono rounded-sm border transition-colors ${u.statut === "Actif" ? "border-orange-200 text-orange-700 hover:bg-orange-50" : "border-emerald-200 text-emerald-700 hover:bg-emerald-50"}`}>
+                    <UserCheck size={11} /> {u.statut === "Actif" ? "Suspendre" : "Réactiver"}
+                  </button>
+                  {canDelete !== false ? (
+                    <button onClick={() => onDelete(u)} title="Supprimer"
+                      className="flex items-center justify-center gap-1 py-1.5 text-[10px] font-mono rounded-sm border border-border text-muted-foreground hover:border-red-200 hover:text-destructive transition-colors">
+                      <Trash2 size={11} /> Supprimer
+                    </button>
+                  ) : <div />}
+                </div>
+              </div>
+            );
+          })}
+          {filtered.length === 0 && (
+            <div className="col-span-3 text-center py-16 text-muted-foreground">
+              <Users size={32} className="mx-auto mb-3 opacity-20" />
+              <p className="text-sm font-mono">Aucun membre trouvé</p>
+            </div>
           )}
         </div>
-      </div>
+      )}
 
-      <div className="bg-card border border-border rounded-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[800px]">
-            <thead>
-              <tr className="border-b border-border bg-secondary/40">
-                <th className="px-5 py-3 text-left text-xs font-mono uppercase tracking-widest text-muted-foreground w-[28%]">Utilisateur · Email</th>
-                <th className="px-5 py-3 text-left text-xs font-mono uppercase tracking-widest text-muted-foreground w-[22%]">Rôle</th>
-                <th className="px-5 py-3 text-left text-xs font-mono uppercase tracking-widest text-muted-foreground w-[16%]">Téléphone</th>
-                <th className="px-5 py-3 text-left text-xs font-mono uppercase tracking-widest text-muted-foreground w-[18%]">Dernière connexion</th>
-                <th className="px-5 py-3 text-left text-xs font-mono uppercase tracking-widest text-muted-foreground w-[10%]">Statut</th>
-                <th className="px-5 py-3 text-left text-xs font-mono uppercase tracking-widest text-muted-foreground w-[6%]">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((u, i) => (
-                <tr key={u.id} className={`border-b border-border/50 hover:bg-secondary/30 transition-colors ${i % 2 === 0 ? "" : "bg-background/20"}`}>
-                  {/* Utilisateur */}
-                  <td className="px-5 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-sm flex items-center justify-center text-xs font-bold text-white font-mono shrink-0"
-                        style={{ background: ROLES_CONFIG[u.role]?.color ?? "#1B3A6B" }}>
-                        {u.nom[0]}{u.prenom[0]}
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">{u.prenom} {u.nom}</p>
-                        {u.identifiant && <p className="text-[10px] font-mono text-primary/80">@{u.identifiant}</p>}
-                        <p className="text-[10px] font-mono text-muted-foreground">{u.email}</p>
-                      </div>
-                    </div>
-                  </td>
-                  {/* Rôle */}
-                  <td className="px-5 py-4">
-                    <span className="text-xs font-mono border border-border px-2 py-0.5 rounded-sm"
-                      style={{ color: ROLES_CONFIG[u.role]?.color ?? "inherit", borderColor: (ROLES_CONFIG[u.role]?.color ?? "#ccc") + "40" }}>
-                      {u.role}
-                    </span>
-                  </td>
-                  {/* Téléphone */}
-                  <td className="px-5 py-4 text-xs font-mono text-muted-foreground">{u.telephone || "—"}</td>
-                  {/* Dernière connexion */}
-                  <td className="px-5 py-4 text-xs font-mono text-muted-foreground">{u.derniere}</td>
-                  {/* Statut */}
-                  <td className="px-5 py-4"><StatusBadge statut={u.statut} /></td>
-                  {/* Actions */}
-                  <td className="px-5 py-4">
-                    <div className="flex items-center gap-1.5">
-                      {canEdit !== false && (
-                        <button onClick={() => onEdit(u)} title="Modifier" className="p-1.5 hover:bg-primary/10 hover:text-primary rounded-sm transition-colors text-muted-foreground"><Edit2 size={13} /></button>
-                      )}
-                      {canDelete !== false && (
-                        <button onClick={() => onDelete(u)} title="Supprimer" className="p-1.5 hover:bg-red-50 hover:text-destructive rounded-sm transition-colors text-muted-foreground"><Trash2 size={13} /></button>
-                      )}
-                    </div>
-                  </td>
+      {/* ── TABLE VIEW ── */}
+      {viewMode === "table" && (
+        <div className="bg-card border border-border rounded-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[900px]">
+              <thead>
+                <tr className="border-b border-border bg-secondary/40">
+                  <th className="px-3 py-3 w-8">
+                    <input type="checkbox" checked={selected.size === filtered.length && filtered.length > 0}
+                      onChange={e => e.target.checked ? selectAll() : clearSelected()}
+                      className="w-3.5 h-3.5 rounded-sm accent-primary cursor-pointer" />
+                  </th>
+                  <th className="px-5 py-3 text-left text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Membre</th>
+                  <th className="px-5 py-3 text-left text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Rôle</th>
+                  <th className="px-5 py-3 text-left text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Contact</th>
+                  <th className="px-5 py-3 text-left text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Dernière connexion</th>
+                  <th className="px-5 py-3 text-left text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Statut</th>
+                  <th className="px-5 py-3 text-center text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filtered.map((u, i) => {
+                  const meta = ROLE_META[u.role] ?? { color: "#1B3A6B", bg: "#EEF2F8", icon: u.nom[0], desc: "" };
+                  const isSelected = selected.has(u.id);
+                  return (
+                    <tr key={u.id} className={`border-b border-border/50 transition-colors ${isSelected ? "bg-primary/5" : i % 2 === 0 ? "hover:bg-secondary/30" : "bg-background/20 hover:bg-secondary/30"}`}>
+                      <td className="px-3 py-3">
+                        <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(u.id)}
+                          className="w-3.5 h-3.5 rounded-sm accent-primary cursor-pointer" />
+                      </td>
+                      <td className="px-5 py-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-sm flex items-center justify-center text-xs font-bold text-white font-mono shrink-0" style={{ background: meta.color }}>
+                            {u.prenom[0]}{u.nom[0]}
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium">{u.prenom} {u.nom}</p>
+                            <p className="text-[10px] font-mono text-muted-foreground">{u.identifiant ? `@${u.identifiant}` : u.email}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-5 py-3">
+                        <span className="text-[10px] font-mono border px-2 py-0.5 rounded-sm flex items-center gap-1.5 w-fit" style={{ color: meta.color, borderColor: meta.color + "40", background: meta.bg }}>
+                          {u.role}
+                          {u.permissions && <span className="text-[8px] px-1 bg-amber-100 text-amber-700 rounded-sm">custom</span>}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3 text-xs font-mono text-muted-foreground">{u.telephone || "—"}</td>
+                      <td className="px-5 py-3 text-xs font-mono text-muted-foreground">{u.derniere}</td>
+                      <td className="px-5 py-3">
+                        <button onClick={() => onToggleStatut(u)}
+                          className={`text-[10px] font-mono px-2 py-0.5 rounded-sm border cursor-pointer transition-colors ${u.statut === "Actif" ? "border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100" : "border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100"}`}>
+                          {u.statut}
+                        </button>
+                      </td>
+                      <td className="px-5 py-3">
+                        <div className="flex items-center gap-1 justify-center">
+                          <button onClick={() => onView(u)} title="Voir le profil" className="p-1.5 hover:bg-primary/10 hover:text-primary rounded-sm transition-colors text-muted-foreground"><Eye size={12} /></button>
+                          {canEdit !== false && <button onClick={() => onEdit(u)} title="Modifier" className="p-1.5 hover:bg-primary/10 hover:text-primary rounded-sm transition-colors text-muted-foreground"><Edit2 size={12} /></button>}
+                          <button onClick={() => onResetPassword(u)} title="Réinitialiser MDP" className="p-1.5 hover:bg-amber-50 hover:text-amber-700 rounded-sm transition-colors text-muted-foreground"><Lock size={12} /></button>
+                          <button onClick={() => onConfigureAccess(u)} title="Configurer accès" className="p-1.5 hover:bg-violet-50 hover:text-violet-700 rounded-sm transition-colors text-muted-foreground"><ShieldCheck size={12} /></button>
+                          {canDelete !== false && <button onClick={() => onDelete(u)} title="Supprimer" className="p-1.5 hover:bg-red-50 hover:text-destructive rounded-sm transition-colors text-muted-foreground"><Trash2 size={12} /></button>}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
 
+      {/* Permission matrix */}
       <div className="bg-card border border-border rounded-sm overflow-hidden">
-        <div className="px-5 py-3 border-b border-border bg-secondary/30">
-          <h3 className="text-xs uppercase tracking-widest text-muted-foreground font-mono">Matrice des droits d'accès</h3>
+        <div className="px-5 py-3 border-b border-border bg-secondary/30 flex items-center justify-between">
+          <h3 className="text-[10px] uppercase tracking-widest text-muted-foreground font-mono">Matrice des droits d'accès par rôle</h3>
+          <p className="text-[9px] font-mono text-muted-foreground">{Object.keys(ROLE_META).length} rôles · {utilisateurs.length} membres</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs font-mono min-w-[700px]">
             <thead>
               <tr className="border-b border-border">
-                <th className="px-4 py-3 text-left text-muted-foreground">Module</th>
-                {["Admin", "Maire", "Receveur", "Superviseur", "Agent rec.", "Agent recouv."].map((r) => (
-                  <th key={r} className="px-3 py-3 text-center text-muted-foreground">{r}</th>
+                <th className="px-4 py-3 text-left text-muted-foreground font-mono text-[10px]">Module</th>
+                {[["Admin","#1B3A6B"],["Maire","#7C3AED"],["Receveur","#065F46"],["Superviseur","#B45309"],["Agent rec.","#0369A1"],["Agent recouv.","#9D174D"]].map(([r,c]) => (
+                  <th key={r} className="px-3 py-3 text-center text-[10px]" style={{ color: c }}>{r}</th>
                 ))}
               </tr>
             </thead>
@@ -4340,21 +5718,275 @@ function Utilisateurs({ utilisateurs, onAdd, onEdit, onDelete, canCreate, canEdi
                 ["Taxation", true, false, true, true, false, false],
                 ["Paiements", true, false, true, true, false, true],
                 ["Cartographie", true, true, true, true, true, false],
-                ["Rapports", true, true, true, true, false, false],
+                ["Rapports & BI", true, true, true, true, false, false],
                 ["Utilisateurs", true, false, false, false, false, false],
                 ["Sécurité & Audit", true, false, false, false, false, false],
               ].map(([mod, ...perms]) => (
                 <tr key={String(mod)} className="border-b border-border/50 hover:bg-secondary/20">
-                  <td className="px-4 py-2.5 text-foreground font-medium">{mod}</td>
+                  <td className="px-4 py-2.5 text-foreground font-medium text-[11px]">{mod}</td>
                   {(perms as boolean[]).map((p, j) => (
                     <td key={j} className="px-3 py-2.5 text-center">
-                      {p ? <CheckCircle2 size={12} className="text-emerald-600 mx-auto" /> : <X size={12} className="text-muted-foreground/30 mx-auto" />}
+                      {p ? <CheckCircle2 size={12} className="text-emerald-600 mx-auto" /> : <X size={11} className="text-muted-foreground/20 mx-auto" />}
                     </td>
                   ))}
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Manual Payment (Administration) ─────────────────────────────────────────
+function ManualPaymentAdmin({
+  contribuables, paiements, onSave, communeName = "Mamou",
+}: {
+  contribuables: Contribuable[];
+  paiements: Paiement[];
+  onSave: (p: Paiement) => void;
+  communeName?: string;
+}) {
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<Contribuable | null>(null);
+  const [form, setForm] = useState({
+    montant: "", methode: "Espèces", operateur: "—", notes: "",
+    date: new Date().toISOString().slice(0, 10),
+  });
+  const [success, setSuccess] = useState<Paiement | null>(null);
+  const [filter, setFilter] = useState<"tous" | "impayé" | "arriéré">("tous");
+
+  const methodes = ["Espèces", "Mobile Money", "Virement bancaire", "Chèque", "QR Code"];
+  const operateursMap: Record<string, string[]> = {
+    "Mobile Money": ["Orange Money", "MTN MoMo", "Cellcom"],
+    "Espèces": ["—"],
+    "Virement bancaire": ["BCRG", "Ecobank", "UBA", "BNI"],
+    "Chèque": ["—"],
+    "QR Code": ["Orange Money", "MTN MoMo"],
+  };
+
+  const filtered = contribuables.filter(c => {
+    const q = search.toLowerCase();
+    const match = `${c.nom} ${c.prenom} ${c.id} ${c.telephone} ${c.quartier}`.toLowerCase().includes(q);
+    const matchFilter =
+      filter === "tous" ? true :
+      filter === "impayé" ? c.statut === "En attente" :
+      filter === "arriéré" ? c.statut === "Arriéré" : true;
+    return match && matchFilter;
+  });
+
+  const recentPaiements = [...paiements]
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 8);
+
+  const handleSubmit = () => {
+    if (!selected || !form.montant) return;
+    const year = new Date().getFullYear();
+    const ref = `PAY-${year}-${String(Math.floor(Math.random() * 9000) + 1000)}`;
+    const recu = `REC-${ref.split("-").pop()}`;
+    const newP: Paiement = {
+      ref, contribuableId: selected.id,
+      contribuable: `${selected.nom} ${selected.prenom}`,
+      montant: Number(form.montant),
+      methode: form.methode, operateur: form.operateur,
+      date: `${form.date} ${new Date().toTimeString().slice(0, 5)}`,
+      statut: "Validé", recu,
+    };
+    onSave(newP);
+    setSuccess(newP);
+    setSelected(null);
+    setForm({ montant: "", methode: "Espèces", operateur: "—", notes: "", date: new Date().toISOString().slice(0, 10) });
+  };
+
+  const fmt = (n: number) => new Intl.NumberFormat("fr-GN").format(n) + " GNF";
+
+  if (success) {
+    return (
+      <div className="max-w-lg mx-auto mt-8">
+        <div className="bg-card border border-emerald-200 rounded-sm p-8 text-center space-y-4">
+          <div className="w-16 h-16 rounded-full bg-emerald-50 border-2 border-emerald-200 flex items-center justify-center mx-auto">
+            <CheckCircle2 size={28} className="text-emerald-600" />
+          </div>
+          <div>
+            <h3 className="text-base font-semibold text-emerald-800">Paiement enregistré avec succès</h3>
+            <p className="text-xs font-mono text-muted-foreground mt-1">{success.ref} · {success.recu}</p>
+          </div>
+          <div className="bg-background border border-border rounded-sm p-4 text-left space-y-2">
+            {[
+              ["Contribuable", success.contribuable],
+              ["Montant", fmt(success.montant)],
+              ["Méthode", `${success.methode} — ${success.operateur}`],
+              ["Date", success.date],
+              ["Référence", success.ref],
+            ].map(([k, v]) => (
+              <div key={k} className="flex justify-between text-xs font-mono">
+                <span className="text-muted-foreground">{k}</span>
+                <span className="font-semibold">{v}</span>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-3">
+            <button onClick={() => setSuccess(null)}
+              className="flex-1 py-2.5 text-xs font-mono bg-primary text-primary-foreground rounded-sm hover:opacity-90 transition-opacity">
+              Nouveau paiement
+            </button>
+            <button onClick={() => window.print()}
+              className="flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-mono border border-border rounded-sm hover:bg-secondary transition-colors text-muted-foreground">
+              <Printer size={13} /> Imprimer
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
+      {/* Left: contribuable picker */}
+      <div className="lg:col-span-3 space-y-4">
+        <div className="bg-card border border-border rounded-sm overflow-hidden">
+          <div className="px-5 py-3 border-b border-border bg-secondary/30 flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <h3 className="text-xs font-semibold">Sélectionner un contribuable</h3>
+              <p className="text-[10px] font-mono text-muted-foreground mt-0.5">{contribuables.length} contribuables enregistrés</p>
+            </div>
+            <div className="flex items-center gap-1.5">
+              {(["tous", "impayé", "arriéré"] as const).map(f => (
+                <button key={f} onClick={() => setFilter(f)}
+                  className={`px-2.5 py-1 text-[10px] font-mono rounded-sm border transition-all capitalize ${filter === f ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
+                  {f === "tous" ? "Tous" : f === "impayé" ? "En attente" : "Arriérés"}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="p-4">
+            <div className="relative mb-3">
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input type="text" placeholder="Nom, ID, téléphone, quartier…" value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="pl-8 pr-4 py-2 text-xs bg-background border border-border rounded-sm font-mono w-full focus:outline-none focus:ring-1 focus:ring-primary" />
+            </div>
+            <div className="space-y-1.5 max-h-[400px] overflow-y-auto pr-1">
+              {filtered.map(c => (
+                <button key={c.id} onClick={() => { setSelected(c); setForm(f => ({ ...f, montant: String(c.valeur) })); }}
+                  className={`w-full flex items-center gap-3 p-3 rounded-sm border text-left transition-all ${selected?.id === c.id ? "border-primary/50 bg-primary/6 ring-1 ring-primary/20" : "border-border hover:border-primary/30 hover:bg-secondary/30"}`}>
+                  <div className="w-8 h-8 rounded-sm bg-primary/10 flex items-center justify-center shrink-0">
+                    <span className="text-xs font-bold text-primary font-mono">{c.nom[0]}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs font-semibold truncate">{c.prenom} {c.nom}</p>
+                      <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded-sm border shrink-0 ${c.statut === "Payé" ? "border-emerald-200 text-emerald-700 bg-emerald-50" : c.statut === "Arriéré" ? "border-red-200 text-red-700 bg-red-50" : "border-amber-200 text-amber-700 bg-amber-50"}`}>
+                        {c.statut}
+                      </span>
+                    </div>
+                    <p className="text-[10px] font-mono text-muted-foreground truncate">{c.id} · {c.quartier}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-xs font-mono font-semibold">{fmt(c.valeur)}</p>
+                    <p className="text-[9px] font-mono text-muted-foreground">{c.type}</p>
+                  </div>
+                </button>
+              ))}
+              {filtered.length === 0 && (
+                <div className="text-center py-10 text-muted-foreground">
+                  <Search size={24} className="mx-auto mb-2 opacity-20" />
+                  <p className="text-xs font-mono">Aucun contribuable trouvé</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Right: payment form + recent */}
+      <div className="lg:col-span-2 space-y-4">
+        {/* Payment form */}
+        <div className="bg-card border border-border rounded-sm overflow-hidden">
+          <div className="px-5 py-3 border-b border-border bg-secondary/30">
+            <h3 className="text-xs font-semibold">Saisie du paiement</h3>
+            {selected ? (
+              <p className="text-[10px] font-mono text-primary mt-0.5">{selected.prenom} {selected.nom} · {selected.id}</p>
+            ) : (
+              <p className="text-[10px] font-mono text-muted-foreground mt-0.5">Sélectionnez un contribuable</p>
+            )}
+          </div>
+          <div className="p-5 space-y-4">
+            {selected && (
+              <div className="p-3 bg-primary/5 border border-primary/15 rounded-sm">
+                <div className="flex justify-between text-xs font-mono">
+                  <span className="text-muted-foreground">Montant dû</span>
+                  <span className="font-semibold text-primary">{fmt(selected.valeur)}</span>
+                </div>
+                <div className="flex justify-between text-xs font-mono mt-1">
+                  <span className="text-muted-foreground">Catégorie</span>
+                  <span>{selected.categorie} · {selected.type}</span>
+                </div>
+              </div>
+            )}
+            <div>
+              <label className="block text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">Montant (GNF) *</label>
+              <input type="number" min="0" value={form.montant} onChange={e => setForm(f => ({ ...f, montant: e.target.value }))}
+                placeholder="0"
+                className="w-full px-3 py-2 text-sm bg-background border border-border rounded-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">Méthode de paiement</label>
+              <select value={form.methode} onChange={e => setForm(f => ({ ...f, methode: e.target.value, operateur: (operateursMap[e.target.value] ?? ["—"])[0] }))}
+                className="w-full px-3 py-2 text-sm bg-background border border-border rounded-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary appearance-none">
+                {methodes.map(m => <option key={m}>{m}</option>)}
+              </select>
+            </div>
+            {(operateursMap[form.methode] ?? []).length > 1 && (
+              <div>
+                <label className="block text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">Opérateur</label>
+                <select value={form.operateur} onChange={e => setForm(f => ({ ...f, operateur: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm bg-background border border-border rounded-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary appearance-none">
+                  {(operateursMap[form.methode] ?? []).map(o => <option key={o}>{o}</option>)}
+                </select>
+              </div>
+            )}
+            <div>
+              <label className="block text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">Date du paiement</label>
+              <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+                className="w-full px-3 py-2 text-sm bg-background border border-border rounded-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">Notes internes</label>
+              <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2}
+                placeholder="Observation, référence externe…"
+                className="w-full px-3 py-2 text-xs bg-background border border-border rounded-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary resize-none" />
+            </div>
+            <button onClick={handleSubmit} disabled={!selected || !form.montant}
+              className="w-full py-3 text-sm font-mono font-semibold bg-primary text-primary-foreground rounded-sm hover:opacity-90 transition-opacity disabled:opacity-40 flex items-center justify-center gap-2">
+              <Banknote size={15} /> Enregistrer le paiement
+            </button>
+          </div>
+        </div>
+
+        {/* Recent payments */}
+        <div className="bg-card border border-border rounded-sm overflow-hidden">
+          <div className="px-5 py-3 border-b border-border bg-secondary/30">
+            <h3 className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Paiements récents</h3>
+          </div>
+          <div className="divide-y divide-border/60">
+            {recentPaiements.length === 0 && (
+              <p className="text-xs font-mono text-muted-foreground text-center py-6">Aucun paiement enregistré</p>
+            )}
+            {recentPaiements.map(p => (
+              <div key={p.ref} className="px-5 py-3 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium truncate">{p.contribuable}</p>
+                  <p className="text-[10px] font-mono text-muted-foreground">{p.ref} · {p.methode}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-xs font-mono font-semibold">{fmt(p.montant)}</p>
+                  <p className="text-[9px] font-mono text-muted-foreground">{p.date.slice(0, 10)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -4706,13 +6338,13 @@ function ExerciceFiscal({
 }
 
 // ─── Paramètres ───────────────────────────────────────────────────────────────
-function Parametres({ canEdit = false }: { canEdit?: boolean }) {
+function Parametres({ canEdit = false, communeName = "Mamou", communeDomain = "mamou-commune.gn" }: { canEdit?: boolean; communeName?: string; communeDomain?: string }) {
   const [saved, setSaved] = useState(false);
   const [form, setForm] = useState({
-    nomCommune: "Commune Urbaine de Mamou",
+    nomCommune: communeName,
     anneeFiscale: "2024",
     devise: "GNF",
-    emailAdmin: "admin@mamou-commune.gn",
+    emailAdmin: `admin@${communeDomain}`,
     smsActif: true,
     emailActif: true,
     backupAuto: true,
@@ -5288,19 +6920,92 @@ const VIEW_LABELS: Record<View, string> = {
 // ─── Sync queue helpers (persisted in localStorage) ───────────────────────────
 const SYNC_QUEUE_KEY = "snrr_sync_queue";
 type SyncOp = { id: string; type: "create" | "update" | "delete"; entity: string; data: unknown; ts: number };
-function loadSyncQueue(): SyncOp[] {
-  try { return JSON.parse(localStorage.getItem(SYNC_QUEUE_KEY) ?? "[]"); } catch { return []; }
+function loadSyncQueueFor(key: string): SyncOp[] {
+  try { return JSON.parse(localStorage.getItem(key) ?? "[]"); } catch { return []; }
 }
-function saveSyncQueue(q: SyncOp[]) { localStorage.setItem(SYNC_QUEUE_KEY, JSON.stringify(q)); }
-function enqueueSyncOp(op: Omit<SyncOp, "id" | "ts">) {
-  const q = loadSyncQueue();
+function loadSyncQueue(): SyncOp[] { return loadSyncQueueFor(SYNC_QUEUE_KEY); }
+function saveSyncQueueFor(key: string, q: SyncOp[]) { localStorage.setItem(key, JSON.stringify(q)); }
+function saveSyncQueue(q: SyncOp[]) { saveSyncQueueFor(SYNC_QUEUE_KEY, q); }
+function enqueueSyncOpFor(key: string, op: Omit<SyncOp, "id" | "ts">) {
+  const q = loadSyncQueueFor(key);
   q.push({ ...op, id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, ts: Date.now() });
-  saveSyncQueue(q);
+  saveSyncQueueFor(key, q);
 }
-function clearSyncQueue() { saveSyncQueue([]); }
+function enqueueSyncOp(op: Omit<SyncOp, "id" | "ts">) { enqueueSyncOpFor(SYNC_QUEUE_KEY, op); }
+function clearSyncQueueFor(key: string) { saveSyncQueueFor(key, []); }
+function clearSyncQueue() { clearSyncQueueFor(SYNC_QUEUE_KEY); }
 
-export function TenantApp() {
-  const [currentUser, setCurrentUser] = useState<Utilisateur | null>(null);
+export function TenantApp({ tenant, onExit }: { tenant?: TenantConfig | null; onExit?: () => void }) {
+  // --- Commune identity derived from tenant prop ---
+  const communeName      = tenant?.commune ?? "Préfecture de Mamou";
+  const communeId        = tenant?.id      ?? "mamou";
+  const communeDomain    = `${communeId}.gn`;
+  const communeEmail     = (suffix: string) => `${suffix}@${communeDomain}`;
+  // Short display name: strip "Préfecture de " / "Commune Urbaine de " / "Commune de "
+  const communeShortName = communeName
+    .replace(/^Préfecture de /i, "")
+    .replace(/^Commune Urbaine de /i, "")
+    .replace(/^Commune de /i, "")
+    .trim();
+  // Entity type badge for UI
+  const isCommune        = communeName.toLowerCase().includes("commune");
+  const entityBadge      = isCommune ? "CU" : "PREF";
+
+  // Tenant-scoped localStorage helpers — all data isolated per commune
+  const tKey = (k: string) => `snrr_${communeId}_${k}`;
+  const tLoad = <T,>(k: string, fallback: () => T): T => {
+    try { const r = localStorage.getItem(tKey(k)); if (r) return JSON.parse(r) as T; } catch {}
+    return fallback();
+  };
+  const tSave = (k: string, v: unknown) => {
+    try { localStorage.setItem(tKey(k), JSON.stringify(v)); } catch {}
+  };
+
+  // Commune geographic config (quartiers, sous-préfectures, SP stats, etc.)
+  const communeConfig = buildCommuneConfig(communeId, communeName);
+
+  // Adapt seed contribuables to this commune's geography and ID prefix
+  const adaptContribuables = (): Contribuable[] => {
+    const quartiers = communeConfig.communes[0]?.districts ?? [];
+    const firstQ = quartiers[0]?.nom ?? "Centre-ville";
+    return CONTRIBUABLES_INIT.map((c, i) => {
+      const q = quartiers[i % Math.max(quartiers.length, 1)];
+      const quartier = q?.nom ?? firstQ;
+      const secteur = q?.secteurs[0] ?? "S-01";
+      const year = new Date().getFullYear();
+      return {
+        ...c,
+        id: `${communeConfig.code}-${year}-${c.id.split("-").pop()}`,
+        quartier,
+        secteur,
+        commune: communeConfig.communes[0]?.nom,
+      };
+    });
+  };
+
+  // Adapt seed users: replace mamou-commune.gn domain with this commune's domain
+  const adaptUtilisateurs = (): Utilisateur[] =>
+    UTILISATEURS_INIT.map(u => ({
+      ...u,
+      email: u.email
+        .replace("mamou-commune.gn", communeDomain)
+        .replace("mamou.gn", communeDomain),
+    }));
+
+  // Auto-create workspace admin for this commune when entering from portal
+  const buildAdminUser = (): Utilisateur => {
+    const seed = adaptUtilisateurs().find(u => u.role === "Administrateur" && u.statut === "Actif");
+    return seed ?? {
+      id: "USR-000", nom: "Admin", prenom: "Système", role: "Administrateur",
+      email: communeEmail("admin"), telephone: "+224 620 00 00 00",
+      derniere: new Date().toLocaleString("fr-FR"), statut: "Actif",
+      dateCreation: "2024-01-01", identifiant: "admin",
+    };
+  };
+
+  const [currentUser, setCurrentUser] = useState<Utilisateur | null>(() =>
+    tenant ? buildAdminUser() : null
+  );
   const [profilePhotoVersion, setProfilePhotoVersion] = useState(0);
 
   // Hash-based browser history — read initial view from URL hash
@@ -5325,18 +7030,20 @@ export function TenantApp() {
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  // Exercice fiscal
-  const [exerciceStore, setExerciceStore] = useState<ExerciceStore>(loadExercice);
+  // Exercice fiscal — tenant-scoped
+  const exerciceKeyT = tKey("exercice_recettes");
+  const [exerciceStore, setExerciceStore] = useState<ExerciceStore>(() => loadExerciceFor(exerciceKeyT));
   const [exerciceAnnee, setExerciceAnnee] = useState("2024");
   const handleSaveExercice = (annee: string, store: ExerciceStore) => {
     setExerciceStore(store);
     setExerciceAnnee(annee);
-    saveExercice(store);
+    saveExerciceFor(exerciceKeyT, store);
   };
   const recettesActuelles: RecetteMois[] = exerciceStore[exerciceAnnee]?.mois ?? RECETTES_DEFAULT;
 
-  // Audit log
-  const [auditLogs, setAuditLogs] = useState<AuditEntry[]>(loadAudit);
+  // Audit log — tenant-scoped
+  const auditKeyT = tKey("audit_log");
+  const [auditLogs, setAuditLogs] = useState<AuditEntry[]>(() => loadAuditFor(auditKeyT));
 
   const addAuditLog = (action: string, type: AuditEntry["type"] = "info") => {
     const entry: AuditEntry = {
@@ -5349,18 +7056,19 @@ export function TenantApp() {
     };
     setAuditLogs(prev => {
       const updated = [entry, ...prev];
-      saveAudit(updated);
+      saveAuditFor(auditKeyT, updated);
       return updated;
     });
   };
 
   const handleClearAuditLogs = () => {
-    setAuditLogs([]); saveAudit([]);
+    setAuditLogs([]); saveAuditFor(auditKeyT, []);
   };
 
-  // Offline / sync state
+  // Offline / sync state — tenant-scoped
+  const syncKeyT = tKey("sync_queue");
   const [isOnline, setIsOnline] = useState(navigator.onLine);
-  const [syncQueueLength, setSyncQueueLength] = useState(() => loadSyncQueue().length);
+  const [syncQueueLength, setSyncQueueLength] = useState(() => loadSyncQueueFor(syncKeyT).length);
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "done">("idle");
 
   useEffect(() => {
@@ -5379,12 +7087,11 @@ export function TenantApp() {
   }, []);
 
   const triggerSync = async () => {
-    const q = loadSyncQueue();
+    const q = loadSyncQueueFor(syncKeyT);
     if (q.length === 0) return;
     setSyncStatus("syncing");
-    // Simulate sending queued ops to server (in production: real API calls)
     await new Promise(r => setTimeout(r, 1200));
-    clearSyncQueue();
+    clearSyncQueueFor(syncKeyT);
     setSyncQueueLength(0);
     setSyncStatus("done");
     setTimeout(() => setSyncStatus("idle"), 3000);
@@ -5394,21 +7101,36 @@ export function TenantApp() {
   const withSync = <T,>(entity: string, type: SyncOp["type"], fn: () => T, data: unknown): T => {
     const result = fn();
     if (!navigator.onLine) {
-      enqueueSyncOp({ type, entity, data });
-      setSyncQueueLength(loadSyncQueue().length);
+      enqueueSyncOpFor(syncKeyT, { type, entity, data });
+      setSyncQueueLength(loadSyncQueueFor(syncKeyT).length);
     }
     return result;
   };
 
-  // Data state
-  const [contribuables, setContribuables] = useState<Contribuable[]>(CONTRIBUABLES_INIT);
-  const [paiements, setPaiements] = useState<Paiement[]>(PAIEMENTS_INIT);
-  const [utilisateurs, setUtilisateurs] = useState<Utilisateur[]>(UTILISATEURS_INIT);
-  const [taxes, setTaxes] = useState<Taxe[]>(TAXES_INIT);
+  // Data state — fully tenant-scoped: load from localStorage first, seed if empty
+  const [contribuables, setContribuables] = useState<Contribuable[]>(() =>
+    tLoad("contribuables", adaptContribuables)
+  );
+  const [paiements, setPaiements] = useState<Paiement[]>(() =>
+    tLoad("paiements", () => PAIEMENTS_INIT)
+  );
+  const [utilisateurs, setUtilisateurs] = useState<Utilisateur[]>(() =>
+    tLoad("utilisateurs", adaptUtilisateurs)
+  );
+  const [taxes, setTaxes] = useState<Taxe[]>(() =>
+    tLoad("taxes", () => TAXES_INIT)
+  );
+
+  // Persist all data changes to tenant-scoped localStorage
+  useEffect(() => { tSave("contribuables", contribuables); }, [contribuables]);
+  useEffect(() => { tSave("paiements", paiements); }, [paiements]);
+  useEffect(() => { tSave("utilisateurs", utilisateurs); }, [utilisateurs]);
+  useEffect(() => { tSave("taxes", taxes); }, [taxes]);
 
   // Modal state
   const [modal, setModal] = useState<ModalType>(null);
   const [modalData, setModalData] = useState<Contribuable | Paiement | Utilisateur | Taxe | null>(null);
+  const [adminTab, setAdminTab] = useState<"membres" | "paiements">("membres");
 
   const openModal = (type: ModalType, data?: Contribuable | Paiement | Utilisateur | Taxe | null) => {
     setModal(type);
@@ -5424,9 +7146,9 @@ export function TenantApp() {
     emailEnabled: true,
     whatsappEnabled: true,
     autoSendAvis: true,
-    emailSmtp: 'smtp.mamou-commune.gn',
+    emailSmtp: `smtp.${communeDomain}`,
     emailPort: '587',
-    emailUser: 'notifications@mamou-commune.gn',
+    emailUser: `notifications@${communeDomain}`,
     whatsappApi: 'https://api.whatsapp.com/send',
   });
 
@@ -5460,7 +7182,7 @@ export function TenantApp() {
 
   const handleSendEmail = async (email: string, contribuable?: Contribuable, avisRef?: string) => {
     const subject = avisRef ? `Avis d'imposition ${avisRef}` : "Notification fiscale";
-    const body = `Bonjour,\n\nVeuillez trouver ci-joint votre avis d'imposition.\n\nCommune de Mamou - SNRR`;
+    const body = `Bonjour,\n\nVeuillez trouver ci-joint votre avis d'imposition.\n\n${communeName} — Système SNRR`;
     
     // Créer le log de notification
     const log: NotificationLog = {
@@ -5489,8 +7211,8 @@ export function TenantApp() {
 
   const handleSendWhatsApp = async (phone: string, contribuable?: Contribuable, avisRef?: string) => {
     const message = avisRef 
-      ? `Bonjour, votre avis d'imposition ${avisRef} est disponible. Commune de Mamou - SNRR`
-      : `Bonjour, vous avez une notification de la Commune de Mamou - SNRR`;
+      ? `Bonjour, votre avis d'imposition ${avisRef} est disponible. ${communeName} — SNRR`
+      : `Bonjour, vous avez une notification de ${communeName} — SNRR`;
     
     // Créer le log de notification
     const log: NotificationLog = {
@@ -5554,7 +7276,7 @@ export function TenantApp() {
     return hasPermission(currentUser.role as Role, permission);
   };
 
-  if (!currentUser) return <LoginPage onLogin={handleLogin} utilisateurs={utilisateurs} />;
+  if (!currentUser) return <LoginPage onLogin={handleLogin} utilisateurs={utilisateurs} commune={communeName} communeId={communeId} />;
 
   const guard = (viewId: View, element: React.ReactNode) => {
     if (!userCanAccessView(viewId)) return <AccessDenied role={currentUser!.role} view={VIEW_LABELS[viewId]} />;
@@ -5563,7 +7285,7 @@ export function TenantApp() {
 
   const renderView = () => {
     switch (view) {
-      case "dashboard": return <Dashboard onNavigate={setView} contribuables={contribuables} paiements={paiements} currentUserRole={currentUser!.role as Role} recettesData={recettesActuelles} />;
+      case "dashboard": return <Dashboard onNavigate={setView} contribuables={contribuables} paiements={paiements} currentUserRole={currentUser!.role as Role} recettesData={recettesActuelles} communeName={communeName} communeConfig={communeConfig} />;
       case "recensement": return guard("recensement", (
         <Recensement
           contribuables={contribuables}
@@ -5575,6 +7297,7 @@ export function TenantApp() {
           canCreate={userHasPermission("create_recensement")}
           canEdit={userHasPermission("edit_recensement")}
           canDelete={userHasPermission("delete_recensement")}
+          communeName={communeName}
         />
       ));
       case "taxation": return guard("taxation", (
@@ -5602,25 +7325,62 @@ export function TenantApp() {
           }}
           canCreate={userHasPermission("create_paiements")}
           canCancel={userHasPermission("cancel_paiements")}
+          communeName={communeName}
+          communeId={communeId}
         />
       ));
-      case "cartographie": return guard("cartographie", <Cartographie onNavigate={setView} contribuables={contribuables} />);
-      case "rapports": return guard("rapports", <Rapports contribuables={contribuables} recettesData={recettesActuelles} />);
+      case "cartographie": return guard("cartographie", <Cartographie onNavigate={setView} contribuables={contribuables} communeName={communeName} communeConfig={communeConfig} communeId={communeId} />);
+      case "rapports": return guard("rapports", <Rapports contribuables={contribuables} recettesData={recettesActuelles} communeName={communeName} communeConfig={communeConfig} />);
       case "business-intelligence": return guard("business-intelligence", <BusinessIntelligence />);
       case "exercice-fiscal": return guard("exercice-fiscal", <ExerciceFiscal store={exerciceStore} annee={exerciceAnnee} onSave={handleSaveExercice} />);
       case "utilisateurs": return guard("utilisateurs", (
-        <Utilisateurs
-          utilisateurs={utilisateurs}
-          onAdd={() => openModal("new-user")}
-          onEdit={(u) => openModal("edit-user", u)}
-          onDelete={(u) => openModal("confirm-delete", u)}
-          canCreate={userHasPermission("create_utilisateurs")}
-          canEdit={userHasPermission("edit_utilisateurs")}
-          canDelete={userHasPermission("delete_utilisateurs")}
-        />
+        <div className="space-y-5">
+          {/* Admin section tabs */}
+          <div className="flex items-center gap-1 border-b border-border pb-0">
+            {([
+              { key: "membres", label: "Gestion des membres", icon: Users },
+              { key: "paiements", label: "Paiements manuels", icon: Banknote },
+            ] as const).map(tab => (
+              <button key={tab.key} onClick={() => setAdminTab(tab.key)}
+                className={`flex items-center gap-2 px-4 py-2.5 text-xs font-mono border-b-2 transition-all -mb-px ${adminTab === tab.key ? "border-primary text-primary font-semibold" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"}`}>
+                <tab.icon size={13} /> {tab.label}
+              </button>
+            ))}
+          </div>
+          {adminTab === "membres" && (
+            <Utilisateurs
+              utilisateurs={utilisateurs}
+              onAdd={() => openModal("new-user")}
+              onEdit={(u) => openModal("edit-user", u)}
+              onDelete={(u) => openModal("confirm-delete", u)}
+              onView={(u) => openModal("view-user-detail", u)}
+              onResetPassword={(u) => openModal("reset-password", u)}
+              onConfigureAccess={(u) => openModal("configure-access", u)}
+              onToggleStatut={(u) => {
+                const newStatut = u.statut === "Actif" ? "Inactif" : "Actif";
+                setUtilisateurs(prev => prev.map(x => x.id === u.id ? { ...x, statut: newStatut } : x));
+                addAuditLog(`Statut utilisateur ${newStatut === "Inactif" ? "suspendu" : "réactivé"} — ${u.prenom} ${u.nom}`, newStatut === "Inactif" ? "warning" : "info");
+              }}
+              canCreate={userHasPermission("create_utilisateurs")}
+              canEdit={userHasPermission("edit_utilisateurs")}
+              canDelete={userHasPermission("delete_utilisateurs")}
+            />
+          )}
+          {adminTab === "paiements" && (
+            <ManualPaymentAdmin
+              contribuables={contribuables}
+              paiements={paiements}
+              onSave={(p) => {
+                setPaiements(prev => [p, ...prev]);
+                addAuditLog(`Paiement manuel enregistré — ${p.ref} · ${p.contribuable} · ${new Intl.NumberFormat("fr-GN").format(p.montant)} GNF`, "info");
+              }}
+              communeName={communeName}
+            />
+          )}
+        </div>
       ));
       case "securite": return guard("securite", <Securite canManage={userHasPermission("manage_securite")} auditLogs={auditLogs} onClearLogs={handleClearAuditLogs} />);
-      case "parametres": return guard("parametres", <Parametres canEdit={userHasPermission("edit_parametres")} />);
+      case "parametres": return guard("parametres", <Parametres canEdit={userHasPermission("edit_parametres")} communeName={communeName} communeDomain={communeDomain} />);
       case "notifications": return guard("notifications", (
         <NotificationsView
           notifications={notificationLogs}
@@ -5649,8 +7409,11 @@ export function TenantApp() {
             {/* Logo blason officiel */}
             <img src={logoImg} alt="Blason République de Guinée" className="w-9 h-9 object-contain drop-shadow-lg shrink-0" />
             <div>
-              <p className="text-xs font-bold tracking-widest uppercase text-white whitespace-nowrap">SNRR-Mamou</p>
-              <p className="text-xs text-white/40 font-mono">v1.0 — 2024</p>
+              <div className="flex items-center gap-1.5">
+                <p className="text-xs font-bold tracking-widest uppercase text-white whitespace-nowrap truncate">SNRR · {communeShortName}</p>
+                <span className={`shrink-0 text-[7px] font-mono px-1 py-0.5 rounded border ${isCommune ? "text-[#009460] border-[#009460]/40 bg-[#009460]/15" : "text-[#FCD116] border-[#FCD116]/40 bg-[#FCD116]/15"}`}>{entityBadge}</span>
+              </div>
+              <p className="text-[10px] text-white/40 font-mono truncate">{communeEmail("admin")}</p>
             </div>
           </div>
         </div>
@@ -5716,6 +7479,11 @@ export function TenantApp() {
           <button onClick={handleLogout} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-white/35 hover:text-white/70 rounded-sm hover:bg-white/5 transition-colors font-mono">
             <LogOut size={12} /> Déconnexion
           </button>
+          {onExit && (
+            <button onClick={onExit} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[#CE1126]/50 hover:text-[#CE1126] rounded-sm hover:bg-[#CE1126]/10 transition-colors font-mono">
+              <ExternalLink size={12} /> Retour au portail
+            </button>
+          )}
         </div>
       </aside>
 
@@ -5729,7 +7497,7 @@ export function TenantApp() {
           <div className="flex-1 min-w-0">
             <h1 className="text-sm font-semibold text-foreground truncate">{VIEW_LABELS[view]}</h1>
             <p className="text-xs text-muted-foreground font-mono hidden sm:block">
-              SNRR-Mamou · {new Date().toLocaleDateString("fr-GN", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+              {communeName} · {new Date().toLocaleDateString("fr-GN", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -5782,7 +7550,7 @@ export function TenantApp() {
 
         {/* Breadcrumb */}
         <div className="px-6 py-2 border-b border-border/50 bg-background flex items-center gap-2 text-xs font-mono text-muted-foreground shrink-0">
-          <button onClick={() => setView("dashboard")} className="hover:text-foreground transition-colors">SNRR-Mamou</button>
+          <button onClick={() => setView("dashboard")} className="hover:text-foreground transition-colors">SNRR · {communeShortName}</button>
           <ChevronRight size={11} />
           <span className="text-foreground">{VIEW_LABELS[view]}</span>
         </div>
@@ -5798,6 +7566,7 @@ export function TenantApp() {
       {modal === "new-contribuable" && (
         <Modal title="Nouveau contribuable" onClose={closeModal} size="xl">
           <ContribuableFormEnhanced
+            communeConfig={communeConfig}
             onSave={(c) => {
               withSync("contribuable", "create", () => setContribuables((prev) => [...prev, c]), c);
               addAuditLog(`Nouveau recensement — ${c.id} (${c.prenom} ${c.nom})`);
@@ -5811,6 +7580,7 @@ export function TenantApp() {
       {modal === "edit-contribuable" && modalData && (
         <Modal title="Modifier le dossier" onClose={closeModal} size="xl">
           <ContribuableFormEnhanced
+            communeConfig={communeConfig}
             initial={modalData as Contribuable}
             onSave={(c) => {
               withSync("contribuable", "update", () => setContribuables((prev) => prev.map((x) => x.id === c.id ? c : x)), c);
@@ -5831,6 +7601,7 @@ export function TenantApp() {
             onPaiement={() => { setView("paiements"); openModal("new-paiement", modalData); }}
             notificationSettings={notificationSettings}
             onNotificationSent={handleNotificationSent}
+            communeName={communeName}
           />
         </Modal>
       )}
@@ -5908,7 +7679,7 @@ export function TenantApp() {
 
       {modal === "view-paiement" && modalData && (
         <Modal title="Détail du paiement" onClose={closeModal} size="md">
-          <RecuPaiement p={modalData as Paiement} onClose={closeModal} />
+          <RecuPaiement p={modalData as Paiement} onClose={closeModal} communeName={communeName} />
         </Modal>
       )}
 
@@ -5944,6 +7715,7 @@ export function TenantApp() {
             onClose={closeModal}
             existingEmails={utilisateurs.map(u => u.email)}
             existingIdentifiants={utilisateurs.map(u => u.identifiant).filter(Boolean) as string[]}
+            communeDomain={communeDomain}
           />
         </Modal>
       )}
@@ -5956,6 +7728,7 @@ export function TenantApp() {
             onClose={closeModal}
             existingEmails={utilisateurs.map(u => u.email)}
             existingIdentifiants={utilisateurs.map(u => u.identifiant).filter(Boolean) as string[]}
+            communeDomain={communeDomain}
           />
         </Modal>
       )}
@@ -5978,6 +7751,46 @@ export function TenantApp() {
             onClose={closeModal}
           />
         </Modal>
+      )}
+
+      {modal === "reset-password" && modalData && (
+        <ResetPasswordModal
+          user={modalData as Utilisateur}
+          onClose={closeModal}
+          onReset={(userId, _pwd) => {
+            setUtilisateurs(prev => prev.map(x => x.id === userId ? { ...x, motDePasseReset: true } : x));
+            addAuditLog(`Réinitialisation MDP — ${(modalData as Utilisateur).prenom} ${(modalData as Utilisateur).nom}`, "warning");
+            closeModal();
+          }}
+        />
+      )}
+
+      {modal === "configure-access" && modalData && (
+        <ConfigureAccessModal
+          user={modalData as Utilisateur}
+          onClose={closeModal}
+          onSave={(userId, permissions) => {
+            setUtilisateurs(prev => prev.map(x => x.id === userId ? { ...x, permissions } : x));
+            addAuditLog(`Permissions personnalisées — ${(modalData as Utilisateur).prenom} ${(modalData as Utilisateur).nom}`, "warning");
+          }}
+        />
+      )}
+
+      {modal === "view-user-detail" && modalData && (
+        <UserDetailModal
+          user={modalData as Utilisateur}
+          onClose={closeModal}
+          onEdit={() => { openModal("edit-user", modalData); }}
+          onResetPassword={() => { openModal("reset-password", modalData); }}
+          onToggleStatut={() => {
+            const u = modalData as Utilisateur;
+            const newStatut = u.statut === "Actif" ? "Inactif" : "Actif";
+            setUtilisateurs(prev => prev.map(x => x.id === u.id ? { ...x, statut: newStatut } : x));
+            addAuditLog(`Statut utilisateur ${newStatut === "Inactif" ? "suspendu" : "réactivé"} — ${u.prenom} ${u.nom}`, newStatut === "Inactif" ? "warning" : "info");
+            closeModal();
+          }}
+          onDelete={() => { openModal("confirm-delete", modalData); }}
+        />
       )}
 
       {/* Modale des paramètres de notification */}
@@ -6010,6 +7823,7 @@ export function TenantApp() {
             onPaiement={() => { openModal("new-paiement", scannedContribuable); setScannedContribuable(null); }}
             notificationSettings={notificationSettings}
             onNotificationSent={(log) => setNotificationLogs(prev => [log, ...prev])}
+            communeName={communeName}
           />
         </Modal>
       )}
@@ -6069,6 +7883,6 @@ export default function AppRouter() {
   };
 
   if (mode === "superadmin") return <SuperAdmin onExit={exitSuperAdmin} />;
-  if (mode === "tenant" && tenant) return <TenantApp />;
+  if (mode === "tenant" && tenant) return <TenantApp tenant={tenant} onExit={exitTenant} />;
   return <SaasLanding onEnterApp={enterTenant} onSuperAdmin={enterSuperAdmin} />;
 }

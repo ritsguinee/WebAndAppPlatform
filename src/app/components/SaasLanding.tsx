@@ -304,63 +304,88 @@ type Lang = "fr" | "en";
 
 // ─── Communes de Guinée ────────────────────────────────────────────────────────
 
-interface CommuneEntry { id: string; nom: string; region: string; }
+type EntiteType = "commune" | "prefecture";
+
+interface CommuneEntry {
+  id: string;
+  nom: string;           // short name (e.g. "Mamou")
+  nomOfficiel: string;   // full official name (e.g. "Commune Urbaine de Mamou")
+  region: string;
+  type: EntiteType;
+}
 
 const COMMUNES_GUINEE: CommuneEntry[] = [
-  // Conakry — communes urbaines
-  { id: "conakry-kaloum",   nom: "Kaloum",           region: "Conakry" },
-  { id: "conakry-dixinn",   nom: "Dixinn",            region: "Conakry" },
-  { id: "conakry-ratoma",   nom: "Ratoma",            region: "Conakry" },
-  { id: "conakry-matam",    nom: "Matam",             region: "Conakry" },
-  { id: "conakry-matoto",   nom: "Matoto",            region: "Conakry" },
-  // Basse Guinée
-  { id: "coyah",            nom: "Coyah",             region: "Kindia" },
-  { id: "dubreka",          nom: "Dubréka",           region: "Kindia" },
-  { id: "forecariah",       nom: "Forécariah",        region: "Kindia" },
-  { id: "kindia",           nom: "Kindia",            region: "Kindia" },
-  { id: "telimele",         nom: "Télimélé",          region: "Kindia" },
-  { id: "boffa",            nom: "Boffa",             region: "Boké" },
-  { id: "boke",             nom: "Boké",              region: "Boké" },
-  { id: "fria",             nom: "Fria",              region: "Boké" },
-  { id: "gaoual",           nom: "Gaoual",            region: "Boké" },
-  { id: "koundara",         nom: "Koundara",          region: "Boké" },
-  // Moyenne Guinée
-  { id: "dalaba",           nom: "Dalaba",            region: "Mamou" },
-  { id: "mamou",            nom: "Mamou",             region: "Mamou" },
-  { id: "pita",             nom: "Pita",              region: "Mamou" },
-  { id: "koubia",           nom: "Koubia",            region: "Labé" },
-  { id: "labe",             nom: "Labé",              region: "Labé" },
-  { id: "lelouma",          nom: "Lélouma",           region: "Labé" },
-  { id: "mali",             nom: "Mali",              region: "Labé" },
-  { id: "tougue",           nom: "Tougué",            region: "Labé" },
-  // Haute Guinée
-  { id: "dabola",           nom: "Dabola",            region: "Faranah" },
-  { id: "dinguiraye",       nom: "Dinguiraye",        region: "Faranah" },
-  { id: "faranah",          nom: "Faranah",           region: "Faranah" },
-  { id: "kissidougou",      nom: "Kissidougou",       region: "Faranah" },
-  { id: "kankan",           nom: "Kankan",            region: "Kankan" },
-  { id: "kerouane",         nom: "Kérouané",          region: "Kankan" },
-  { id: "kouroussa",        nom: "Kouroussa",         region: "Kankan" },
-  { id: "mandiana",         nom: "Mandiana",          region: "Kankan" },
-  { id: "siguiri",          nom: "Siguiri",           region: "Kankan" },
-  // Guinée Forestière
-  { id: "beyla",            nom: "Beyla",             region: "N'Zérékoré" },
-  { id: "gueckedou",        nom: "Guéckédou",         region: "N'Zérékoré" },
-  { id: "lola",             nom: "Lola",              region: "N'Zérékoré" },
-  { id: "macenta",          nom: "Macenta",           region: "N'Zérékoré" },
-  { id: "nzerekore",        nom: "N'Zérékoré",        region: "N'Zérékoré" },
-  { id: "yomou",            nom: "Yomou",             region: "N'Zérékoré" },
+  // ── Conakry — 5 communes urbaines ─────────────────────────────────────────
+  { id: "conakry-kaloum",  nom: "Kaloum",      nomOfficiel: "Commune de Kaloum",      region: "Conakry",     type: "commune" },
+  { id: "conakry-dixinn",  nom: "Dixinn",      nomOfficiel: "Commune de Dixinn",      region: "Conakry",     type: "commune" },
+  { id: "conakry-ratoma",  nom: "Ratoma",      nomOfficiel: "Commune de Ratoma",      region: "Conakry",     type: "commune" },
+  { id: "conakry-matam",   nom: "Matam",       nomOfficiel: "Commune de Matam",       region: "Conakry",     type: "commune" },
+  { id: "conakry-matoto",  nom: "Matoto",      nomOfficiel: "Commune de Matoto",      region: "Conakry",     type: "commune" },
+
+  // ── Région de Kindia ──────────────────────────────────────────────────────
+  { id: "coyah",           nom: "Coyah",       nomOfficiel: "Préfecture de Coyah",       region: "Kindia",   type: "prefecture" },
+  { id: "dubreka",         nom: "Dubréka",     nomOfficiel: "Préfecture de Dubréka",     region: "Kindia",   type: "prefecture" },
+  { id: "forecariah",      nom: "Forécariah",  nomOfficiel: "Préfecture de Forécariah",  region: "Kindia",   type: "prefecture" },
+  { id: "kindia",          nom: "Kindia",      nomOfficiel: "Préfecture de Kindia",      region: "Kindia",   type: "prefecture" },
+  { id: "kindia-cu",       nom: "Kindia (CU)", nomOfficiel: "Commune Urbaine de Kindia", region: "Kindia",   type: "commune" },
+  { id: "telimele",        nom: "Télimélé",    nomOfficiel: "Préfecture de Télimélé",    region: "Kindia",   type: "prefecture" },
+
+  // ── Région de Boké ────────────────────────────────────────────────────────
+  { id: "boffa",           nom: "Boffa",       nomOfficiel: "Préfecture de Boffa",       region: "Boké",     type: "prefecture" },
+  { id: "boke",            nom: "Boké",        nomOfficiel: "Préfecture de Boké",        region: "Boké",     type: "prefecture" },
+  { id: "boke-cu",         nom: "Boké (CU)",   nomOfficiel: "Commune Urbaine de Boké",   region: "Boké",     type: "commune" },
+  { id: "fria",            nom: "Fria",        nomOfficiel: "Commune Urbaine de Fria",   region: "Boké",     type: "commune" },
+  { id: "gaoual",          nom: "Gaoual",      nomOfficiel: "Préfecture de Gaoual",      region: "Boké",     type: "prefecture" },
+  { id: "koundara",        nom: "Koundara",    nomOfficiel: "Préfecture de Koundara",    region: "Boké",     type: "prefecture" },
+
+  // ── Région de Mamou ───────────────────────────────────────────────────────
+  { id: "dalaba",          nom: "Dalaba",      nomOfficiel: "Préfecture de Dalaba",      region: "Mamou",    type: "prefecture" },
+  { id: "mamou",           nom: "Mamou",       nomOfficiel: "Préfecture de Mamou",       region: "Mamou",    type: "prefecture" },
+  { id: "mamou-cu",        nom: "Mamou (CU)",  nomOfficiel: "Commune Urbaine de Mamou",  region: "Mamou",    type: "commune" },
+  { id: "pita",            nom: "Pita",        nomOfficiel: "Préfecture de Pita",        region: "Mamou",    type: "prefecture" },
+
+  // ── Région de Labé ────────────────────────────────────────────────────────
+  { id: "koubia",          nom: "Koubia",      nomOfficiel: "Préfecture de Koubia",      region: "Labé",     type: "prefecture" },
+  { id: "labe",            nom: "Labé",        nomOfficiel: "Préfecture de Labé",        region: "Labé",     type: "prefecture" },
+  { id: "labe-cu",         nom: "Labé (CU)",   nomOfficiel: "Commune Urbaine de Labé",   region: "Labé",     type: "commune" },
+  { id: "lelouma",         nom: "Lélouma",     nomOfficiel: "Préfecture de Lélouma",     region: "Labé",     type: "prefecture" },
+  { id: "mali",            nom: "Mali",        nomOfficiel: "Préfecture de Mali",        region: "Labé",     type: "prefecture" },
+  { id: "tougue",          nom: "Tougué",      nomOfficiel: "Préfecture de Tougué",      region: "Labé",     type: "prefecture" },
+
+  // ── Région de Faranah ─────────────────────────────────────────────────────
+  { id: "dabola",          nom: "Dabola",      nomOfficiel: "Préfecture de Dabola",      region: "Faranah",  type: "prefecture" },
+  { id: "dinguiraye",      nom: "Dinguiraye",  nomOfficiel: "Préfecture de Dinguiraye",  region: "Faranah",  type: "prefecture" },
+  { id: "faranah",         nom: "Faranah",     nomOfficiel: "Préfecture de Faranah",     region: "Faranah",  type: "prefecture" },
+  { id: "faranah-cu",      nom: "Faranah (CU)",nomOfficiel: "Commune Urbaine de Faranah",region: "Faranah",  type: "commune" },
+  { id: "kissidougou",     nom: "Kissidougou", nomOfficiel: "Préfecture de Kissidougou", region: "Faranah",  type: "prefecture" },
+
+  // ── Région de Kankan ──────────────────────────────────────────────────────
+  { id: "kankan",          nom: "Kankan",      nomOfficiel: "Préfecture de Kankan",      region: "Kankan",   type: "prefecture" },
+  { id: "kankan-cu",       nom: "Kankan (CU)", nomOfficiel: "Commune Urbaine de Kankan", region: "Kankan",   type: "commune" },
+  { id: "kerouane",        nom: "Kérouané",    nomOfficiel: "Préfecture de Kérouané",    region: "Kankan",   type: "prefecture" },
+  { id: "kouroussa",       nom: "Kouroussa",   nomOfficiel: "Préfecture de Kouroussa",   region: "Kankan",   type: "prefecture" },
+  { id: "mandiana",        nom: "Mandiana",    nomOfficiel: "Préfecture de Mandiana",    region: "Kankan",   type: "prefecture" },
+  { id: "siguiri",         nom: "Siguiri",     nomOfficiel: "Préfecture de Siguiri",     region: "Kankan",   type: "prefecture" },
+
+  // ── Région de N'Zérékoré ──────────────────────────────────────────────────
+  { id: "beyla",           nom: "Beyla",       nomOfficiel: "Préfecture de Beyla",       region: "N'Zérékoré", type: "prefecture" },
+  { id: "gueckedou",       nom: "Guéckédou",   nomOfficiel: "Préfecture de Guéckédou",   region: "N'Zérékoré", type: "prefecture" },
+  { id: "lola",            nom: "Lola",        nomOfficiel: "Préfecture de Lola",        region: "N'Zérékoré", type: "prefecture" },
+  { id: "macenta",         nom: "Macenta",     nomOfficiel: "Préfecture de Macenta",     region: "N'Zérékoré", type: "prefecture" },
+  { id: "nzerekore",       nom: "N'Zérékoré",  nomOfficiel: "Préfecture de N'Zérékoré",  region: "N'Zérékoré", type: "prefecture" },
+  { id: "nzerekore-cu",    nom: "N'Zérékoré (CU)", nomOfficiel: "Commune Urbaine de N'Zérékoré", region: "N'Zérékoré", type: "commune" },
+  { id: "yomou",           nom: "Yomou",       nomOfficiel: "Préfecture de Yomou",       region: "N'Zérékoré", type: "prefecture" },
 ];
 
 const COMMUNE_PASSWORD = "admin@123";
 
 const DEMO_TENANTS: TenantConfig[] = COMMUNES_GUINEE.map(c => ({
   id: c.id,
-  name: `${c.nom} — Commune`,
-  commune: c.nom,
+  name: c.nomOfficiel,
+  commune: c.nomOfficiel,
   country: "Guinée",
   locale: "fr",
-  plan: "pro" as const,
+  plan: (c.type === "prefecture" ? "enterprise" : "pro") as "pro" | "enterprise",
   features: ["all"],
   primaryColor: "#1B3A6B",
 }));
@@ -724,71 +749,122 @@ function TrialModal({ t, onClose, onSuccess }: { t: typeof T.fr; onClose: () => 
 
 const REGIONS_GUINEE = ["Toutes", "Conakry", "Kindia", "Boké", "Mamou", "Labé", "Faranah", "Kankan", "N'Zérékoré"];
 
-const SUPER_ADMIN_LOGIN = "Superadmin";
+const SUPER_ADMIN_LOGIN = "admin@snrr-platform.gn";
 const SUPER_ADMIN_PASSWORD = "Superadmin@snrr27";
 
+type LoginMethod = "email" | "google" | "microsoft" | "saml";
+
 function LoginModal({ t, onClose, onSuccess, onSuperAdmin }: { t: typeof T.fr; onClose: () => void; onSuccess: (tenant: TenantConfig) => void; onSuperAdmin: () => void }) {
+  const [method, setMethod] = useState<LoginMethod>("email");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [region, setRegion] = useState("Toutes");
+  const [typeFilter, setTypeFilter] = useState<"tous" | EntiteType>("tous");
   const [showPicker, setShowPicker] = useState(false);
+  const [ssoStep, setSsoStep] = useState<"idle"|"redirect"|"callback">("idle");
+  const [ssoProvider, setSsoProvider] = useState("");
+  const [samlDomain, setSamlDomain] = useState("");
+  const [samlStep, setSamlStep] = useState<"idle"|"lookup"|"redirect">("idle");
 
   const inp = "w-full px-3.5 py-2.5 text-sm bg-[#0F1929] border border-white/12 rounded-[3px] text-white placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-[#1B3A6B]/60 font-mono transition-colors";
 
-  // Resolve commune from email: admin@{id}.gn
-  const resolveFromEmail = (email: string): TenantConfig | null => {
-    const m = email.trim().toLowerCase().match(/^admin@(.+)\.gn$/);
+  const resolveFromEmail = (e: string): TenantConfig | null => {
+    const m = e.trim().toLowerCase().match(/^admin@(.+)\.gn$/);
     if (!m) return null;
-    const id = m[1];
-    return DEMO_TENANTS.find(t => t.id === id) ?? null;
+    return DEMO_TENANTS.find(t => t.id === m[1]) ?? null;
   };
 
-  const selectCommune = (c: CommuneEntry) => {
-    setEmail(`admin@${c.id}.gn`);
-    setShowPicker(false);
-  };
+  const selectCommune = (c: CommuneEntry) => { setEmail(`admin@${c.id}.gn`); setShowPicker(false); };
 
   const filtered = COMMUNES_GUINEE.filter(c => {
     const q = search.toLowerCase();
-    const matchQ = c.nom.toLowerCase().includes(q) || c.id.includes(q);
-    const matchR = region === "Toutes" || c.region === region;
-    return matchQ && matchR;
+    const matchText = c.nom.toLowerCase().includes(q) || c.nomOfficiel.toLowerCase().includes(q) || c.id.includes(q);
+    const matchRegion = region === "Toutes" || c.region === region;
+    const matchType = typeFilter === "tous" || c.type === typeFilter;
+    return matchText && matchRegion && matchType;
   });
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    if (!email) { setError("Entrez votre identifiant ou email."); return; }
+    if (!email) { setError("Entrez votre identifiant."); return; }
     if (!password) { setError("Entrez votre mot de passe."); return; }
     setLoading(true);
     setTimeout(() => {
-      // Super admin shortcut
-      if (email.trim() === SUPER_ADMIN_LOGIN && password === SUPER_ADMIN_PASSWORD) {
-        onClose();
-        onSuperAdmin();
-        return;
-      }
-      // Commune admin login
-      if (password !== COMMUNE_PASSWORD) {
-        setError("Mot de passe incorrect.");
-        setLoading(false);
-        return;
-      }
+      // 1. Super admin
+      if (email.trim() === SUPER_ADMIN_LOGIN && password === SUPER_ADMIN_PASSWORD) { onClose(); onSuperAdmin(); return; }
+
+      // 2. Custom workspace credentials (set by Super Admin portal, stored in localStorage)
+      try {
+        const stored: Record<string, { login: string; password: string }> =
+          JSON.parse(localStorage.getItem("snrr_workspace_creds") ?? "{}");
+        for (const [wsId, c] of Object.entries(stored)) {
+          if (c.login === email.trim()) {
+            if (c.password === password) {
+              const tenant = DEMO_TENANTS.find(t => t.id === wsId) ?? {
+                id: wsId, commune: wsId.replace(/-/g, " "), plan: "pro" as const
+              };
+              onSuccess(tenant as typeof DEMO_TENANTS[0]);
+            } else {
+              setError("Mot de passe incorrect.");
+              setLoading(false);
+            }
+            return;
+          }
+        }
+      } catch {}
+
+      // 3. Default commune email format: admin@{id}.gn / admin@123
+      if (password !== COMMUNE_PASSWORD) { setError("Mot de passe incorrect."); setLoading(false); return; }
       const tenant = resolveFromEmail(email);
-      if (tenant) {
-        onSuccess(tenant);
-      } else {
-        setError("Identifiant non reconnu. Format commune : admin@commune.gn");
-        setLoading(false);
-      }
+      if (tenant) { onSuccess(tenant); } else { setError("Identifiant non reconnu. Format : admin@commune.gn"); setLoading(false); }
     }, 900);
   };
 
-  // Preview commune from typed email
+  const simulateOAuth = (provider: string) => {
+    setSsoProvider(provider);
+    setSsoStep("redirect");
+    setTimeout(() => setSsoStep("callback"), 2200);
+    setTimeout(() => {
+      // After OAuth we still need commune selection — show email form pre-filled hint
+      setSsoStep("idle");
+      setMethod("email");
+      setError(`Compte ${provider} authentifié. Entrez votre email commune pour accéder au workspace.`);
+    }, 4000);
+  };
+
+  const handleSaml = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!samlDomain) return;
+    setSamlStep("lookup");
+    setTimeout(() => setSamlStep("redirect"), 1400);
+    setTimeout(() => {
+      setSamlStep("idle");
+      setMethod("email");
+      setError(`IdP SAML trouvé pour ${samlDomain}. Entrez votre email commune pour finaliser.`);
+    }, 3200);
+  };
+
   const preview = resolveFromEmail(email);
+
+  const METHODS: { id: LoginMethod; label: string; icon: React.ReactNode }[] = [
+    { id: "email", label: "Email", icon: <Mail size={13} /> },
+    {
+      id: "google", label: "Google",
+      icon: <svg viewBox="0 0 18 18" className="w-3.5 h-3.5"><path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 01-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/><path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z" fill="#34A853"/><path d="M3.964 10.71A5.41 5.41 0 013.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/><path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="#EA4335"/></svg>
+    },
+    {
+      id: "microsoft", label: "Microsoft",
+      icon: <svg viewBox="0 0 21 21" className="w-3.5 h-3.5"><rect x="1" y="1" width="9" height="9" fill="#F25022"/><rect x="11" y="1" width="9" height="9" fill="#7FBA00"/><rect x="1" y="11" width="9" height="9" fill="#00A4EF"/><rect x="11" y="11" width="9" height="9" fill="#FFB900"/></svg>
+    },
+    {
+      id: "saml", label: "SSO / SAML",
+      icon: <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none"><rect x="1" y="5" width="14" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.2"/><circle cx="5" cy="8.5" r="1.5" fill="currentColor"/><path d="M7 8.5h5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><path d="M5 5V3.5a3 3 0 016 0V5" stroke="currentColor" strokeWidth="1.2"/></svg>
+    },
+  ];
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -797,92 +873,272 @@ function LoginModal({ t, onClose, onSuccess, onSuperAdmin }: { t: typeof T.fr; o
           <div className="flex-1 bg-[#CE1126]" /><div className="flex-1 bg-[#FCD116]" /><div className="flex-1 bg-[#009460]" />
         </div>
         <div className="p-7 space-y-5">
+          {/* Header */}
           <div className="flex items-start justify-between">
             <div>
               <h2 className="text-white text-xl font-light mb-0.5" style={{ fontFamily: "'Crimson Pro', serif" }}>Accès à votre workspace</h2>
-              <p className="text-white/40 text-[11px] font-mono">Connectez-vous avec votre compte administrateur</p>
+              <p className="text-white/40 text-[11px] font-mono">Choisissez votre méthode de connexion</p>
             </div>
             <button onClick={onClose} className="text-white/30 hover:text-white transition-colors p-1"><X size={18} /></button>
           </div>
 
-          <form onSubmit={submit} className="space-y-3">
-            {/* Email field */}
-            <div>
-              <label className="block text-[10px] font-mono uppercase tracking-widest text-white/45 mb-1.5">Email administrateur *</label>
-              <div className="flex gap-2">
-                <input className={`${inp} flex-1`} type="email" autoComplete="username"
-                  value={email} onChange={e => setEmail(e.target.value)}
-                  placeholder="admin@mamou.gn" autoFocus />
-                <button type="button" onClick={() => setShowPicker(p => !p)}
-                  className="px-3 py-2.5 text-[10px] font-mono border border-white/12 rounded-[3px] text-white/40 hover:bg-white/6 hover:text-white transition-all whitespace-nowrap">
-                  Choisir commune
-                </button>
-              </div>
-              {preview && (
-                <div className="mt-1.5 flex items-center gap-2 text-[10px] font-mono text-[#009460]">
-                  <Check size={9} /> Commune identifiée : <strong>{preview.commune}</strong> — {preview.id}.platform-snrr.com
-                </div>
-              )}
-            </div>
+          {/* Method tabs */}
+          <div className="grid grid-cols-4 gap-1 bg-white/4 border border-white/8 rounded-[3px] p-1">
+            {METHODS.map(m => (
+              <button key={m.id} onClick={() => { setMethod(m.id); setError(""); setSsoStep("idle"); setSamlStep("idle"); }}
+                className={`flex flex-col items-center gap-1 py-2 px-1 rounded-[2px] text-[9px] font-mono transition-all ${method === m.id ? "bg-[#1B3A6B] text-white shadow" : "text-white/35 hover:text-white/60"}`}>
+                <span className={method === m.id ? "text-white" : "text-white/35"}>{m.icon}</span>
+                {m.label}
+              </button>
+            ))}
+          </div>
 
-            {/* Commune picker dropdown */}
-            {showPicker && (
-              <div className="bg-[#060E1C] border border-white/10 rounded-[3px] overflow-hidden">
-                <div className="p-2.5 border-b border-white/6 space-y-2">
-                  <input className="w-full px-3 py-1.5 text-[11px] bg-white/5 border border-white/10 rounded-[2px] text-white placeholder:text-white/25 focus:outline-none font-mono"
-                    placeholder="Rechercher une commune…" value={search} onChange={e => setSearch(e.target.value)} />
-                  <div className="flex flex-wrap gap-1">
-                    {REGIONS_GUINEE.map(r => (
-                      <button key={r} type="button" onClick={() => setRegion(r)}
-                        className={`text-[9px] font-mono px-2 py-0.5 rounded-full border transition-colors ${region === r ? "bg-[#1B3A6B]/40 border-[#1B3A6B]/50 text-white" : "border-white/8 text-white/30 hover:text-white/60"}`}>
-                        {r}
+          {/* ── EMAIL / PASSWORD ── */}
+          {method === "email" && (
+            <form onSubmit={submit} className="space-y-3">
+              <div>
+                <label className="block text-[10px] font-mono uppercase tracking-widest text-white/45 mb-1.5">Email administrateur *</label>
+                <div className="flex gap-2">
+                  <input className={`${inp} flex-1`} type="email" autoComplete="username"
+                    value={email} onChange={e => setEmail(e.target.value)} placeholder="admin@mamou.gn" autoFocus />
+                  <button type="button" onClick={() => setShowPicker(p => !p)}
+                    className="px-3 py-2.5 text-[10px] font-mono border border-white/12 rounded-[3px] text-white/40 hover:bg-white/6 hover:text-white transition-all whitespace-nowrap">
+                    Sélectionner
+                  </button>
+                </div>
+                {preview && (
+                  <div className="mt-1.5 flex items-center gap-2 text-[10px] font-mono text-[#009460]">
+                    <Check size={9} />
+                    <strong>{preview.commune}</strong>
+                    <span className="text-[#009460]/60">· {preview.id}.platform-snrr.com</span>
+                  </div>
+                )}
+              </div>
+              {showPicker && (
+                <div className="bg-[#060E1C] border border-white/10 rounded-[3px] overflow-hidden">
+                  <div className="p-2.5 border-b border-white/6 space-y-2">
+                    <input className="w-full px-3 py-1.5 text-[11px] bg-white/5 border border-white/10 rounded-[2px] text-white placeholder:text-white/25 focus:outline-none font-mono"
+                      placeholder="Rechercher une commune ou préfecture…" value={search} onChange={e => setSearch(e.target.value)} />
+                    {/* Type filter */}
+                    <div className="flex gap-1">
+                      {(["tous", "commune", "prefecture"] as const).map(t => (
+                        <button key={t} type="button" onClick={() => setTypeFilter(t)}
+                          className={`text-[9px] font-mono px-2 py-0.5 rounded-full border transition-colors ${typeFilter === t
+                            ? t === "commune" ? "bg-[#009460]/30 border-[#009460]/50 text-[#009460]"
+                              : t === "prefecture" ? "bg-[#CE1126]/30 border-[#CE1126]/50 text-[#CE1126]"
+                              : "bg-white/15 border-white/20 text-white"
+                            : "border-white/8 text-white/30 hover:text-white/60"}`}>
+                          {t === "tous" ? "Tous" : t === "commune" ? "Communes" : "Préfectures"}
+                        </button>
+                      ))}
+                    </div>
+                    {/* Region filter */}
+                    <div className="flex flex-wrap gap-1">
+                      {REGIONS_GUINEE.map(r => (
+                        <button key={r} type="button" onClick={() => setRegion(r)}
+                          className={`text-[9px] font-mono px-2 py-0.5 rounded-full border transition-colors ${region === r ? "bg-[#1B3A6B]/40 border-[#1B3A6B]/50 text-white" : "border-white/8 text-white/30 hover:text-white/60"}`}>
+                          {r}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="max-h-44 overflow-y-auto">
+                    {filtered.length === 0 ? (
+                      <p className="text-center text-[11px] font-mono text-white/25 py-4">Aucun résultat</p>
+                    ) : filtered.map(c => (
+                      <button key={c.id} type="button" onClick={() => selectCommune(c)}
+                        className="w-full flex items-center justify-between px-3.5 py-2.5 hover:bg-white/5 transition-colors text-left border-b border-white/4 last:border-0">
+                        <div className="flex flex-col gap-0.5 min-w-0">
+                          <span className="text-[11px] font-medium text-white/80 truncate">{c.nomOfficiel}</span>
+                          <span className="text-[9px] font-mono text-white/30">{c.region}</span>
+                        </div>
+                        <span className={`shrink-0 ml-2 text-[8px] font-mono px-1.5 py-0.5 rounded-full border ${
+                          c.type === "commune"
+                            ? "text-[#009460] border-[#009460]/30 bg-[#009460]/10"
+                            : "text-[#FCD116] border-[#FCD116]/30 bg-[#FCD116]/10"
+                        }`}>
+                          {c.type === "commune" ? "CU" : "PREF"}
+                        </span>
                       </button>
                     ))}
                   </div>
                 </div>
-                <div className="max-h-40 overflow-y-auto">
-                  {filtered.length === 0 ? (
-                    <p className="text-center text-[11px] font-mono text-white/25 py-4">Aucune commune</p>
-                  ) : filtered.map(c => (
-                    <button key={c.id} type="button" onClick={() => selectCommune(c)}
-                      className="w-full flex items-center justify-between px-3.5 py-2 hover:bg-white/5 transition-colors text-left">
-                      <span className="text-[12px] font-medium text-white/70">{c.nom}</span>
-                      <span className="text-[9px] font-mono text-white/25">{c.region}</span>
-                    </button>
-                  ))}
-                </div>
+              )}
+              <div>
+                <label className="block text-[10px] font-mono uppercase tracking-widest text-white/45 mb-1.5">Mot de passe *</label>
+                <input className={inp} type="password" autoComplete="current-password"
+                  value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
               </div>
-            )}
+              {error && <p className="flex items-center gap-1.5 text-[11px] text-[#FCD116] font-mono"><AlertCircle size={10} className="shrink-0" /> {error}</p>}
+              <button type="submit" disabled={loading}
+                className="w-full py-3.5 text-sm font-mono font-semibold rounded-[3px] flex items-center justify-center gap-2 transition-all hover:opacity-90 disabled:opacity-60"
+                style={{ background: "linear-gradient(135deg, #1B3A6B 0%, #0E1F3D 100%)", color: "white" }}>
+                {loading
+                  ? <><span className="animate-spin inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full" /> Connexion…</>
+                  : <>Accéder au workspace <ChevronRight size={14} /></>}
+              </button>
+            </form>
+          )}
 
-            {/* Password */}
-            <div>
-              <label className="block text-[10px] font-mono uppercase tracking-widest text-white/45 mb-1.5">Mot de passe *</label>
-              <input className={inp} type="password" autoComplete="current-password"
-                value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
+          {/* ── GOOGLE ── */}
+          {method === "google" && (
+            <div className="space-y-4">
+              {ssoStep === "idle" && (
+                <>
+                  <div className="text-center py-4 space-y-3">
+                    <div className="w-16 h-16 rounded-full bg-white/6 border border-white/10 flex items-center justify-center mx-auto">
+                      <svg viewBox="0 0 32 32" className="w-8 h-8"><path d="M31.36 16.4c0-1.137-.102-2.229-.293-3.28H16v6.203h8.618a7.37 7.37 0 01-3.198 4.834v4.02h5.18C29.396 25.3 31.36 21.19 31.36 16.4z" fill="#4285F4"/><path d="M16 32c4.32 0 7.947-1.434 10.6-3.883l-5.18-4.02c-1.435.96-3.27 1.53-5.42 1.53-4.17 0-7.701-2.816-8.963-6.604H1.677v4.148A15.998 15.998 0 0016 32z" fill="#34A853"/><path d="M7.037 19.023A9.63 9.63 0 016.538 16c0-1.044.18-2.058.499-3.023V8.83H1.677A15.998 15.998 0 000 16c0 2.583.62 5.027 1.677 7.17l5.36-4.147z" fill="#FBBC05"/><path d="M16 6.373c2.351 0 4.462.809 6.12 2.395l4.594-4.594C23.943 1.587 20.317 0 16 0 9.759 0 4.393 3.484 1.677 8.83l5.36 4.147C8.299 9.19 11.83 6.373 16 6.373z" fill="#EA4335"/></svg>
+                    </div>
+                    <p className="text-white text-[14px] font-light" style={{ fontFamily: "'Crimson Pro', serif" }}>Connexion avec Google Workspace</p>
+                    <p className="text-white/35 text-[10px] font-mono">Authentification OAuth 2.0 sécurisée via votre compte Google institutionnel</p>
+                  </div>
+                  <div className="space-y-2 px-3 py-3 bg-white/4 border border-white/8 rounded-[3px]">
+                    <p className="text-white/40 text-[9px] font-mono uppercase tracking-widest mb-2">Flux d{"'"}authentification</p>
+                    {["Redirection vers accounts.google.com", "Sélection du compte Google organisationnel", "Consentement OAuth 2.0 + scopes", "Retour sur Platform SNRR avec token JWT"].map((s, i) => (
+                      <p key={i} className="text-white/40 text-[10px] font-mono flex items-center gap-2"><span className="text-[#4285F4] text-[9px]">{i + 1}.</span>{s}</p>
+                    ))}
+                  </div>
+                  <button onClick={() => simulateOAuth("Google")}
+                    className="w-full py-3.5 text-sm font-mono font-semibold rounded-[3px] flex items-center justify-center gap-2.5 transition-all border border-white/15 bg-white/6 hover:bg-white text-white hover:text-[#1A1A1A]">
+                    <svg viewBox="0 0 18 18" className="w-4 h-4"><path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 01-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/><path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z" fill="#34A853"/><path d="M3.964 10.71A5.41 5.41 0 013.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/><path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="#EA4335"/></svg>
+                    Continuer avec Google
+                  </button>
+                </>
+              )}
+              {ssoStep === "redirect" && (
+                <div className="text-center py-10 space-y-4">
+                  <div className="w-12 h-12 rounded-full border-2 border-[#4285F4]/30 border-t-[#4285F4] animate-spin mx-auto" />
+                  <p className="text-white/50 text-[12px] font-mono">Redirection vers Google…</p>
+                  <p className="text-white/25 text-[10px] font-mono">accounts.google.com/oauth/authorize</p>
+                </div>
+              )}
+              {ssoStep === "callback" && (
+                <div className="text-center py-10 space-y-3">
+                  <div className="w-12 h-12 rounded-full bg-[#34A853]/15 border border-[#34A853]/30 flex items-center justify-center mx-auto">
+                    <CheckCircle2 size={24} className="text-[#34A853]" />
+                  </div>
+                  <p className="text-white text-[13px] font-mono">Compte Google vérifié</p>
+                  <p className="text-white/30 text-[10px] font-mono">Résolution du workspace en cours…</p>
+                </div>
+              )}
             </div>
+          )}
 
-            {error && (
-              <p className="flex items-center gap-1.5 text-[11px] text-red-400 font-mono">
-                <AlertCircle size={10} className="shrink-0" /> {error}
-              </p>
-            )}
+          {/* ── MICROSOFT ── */}
+          {method === "microsoft" && (
+            <div className="space-y-4">
+              {ssoStep === "idle" && (
+                <>
+                  <div className="text-center py-4 space-y-3">
+                    <div className="w-16 h-16 rounded-full bg-white/6 border border-white/10 flex items-center justify-center mx-auto">
+                      <svg viewBox="0 0 21 21" className="w-8 h-8"><rect x="0" y="0" width="10" height="10" fill="#F25022"/><rect x="11" y="0" width="10" height="10" fill="#7FBA00"/><rect x="0" y="11" width="10" height="10" fill="#00A4EF"/><rect x="11" y="11" width="10" height="10" fill="#FFB900"/></svg>
+                    </div>
+                    <p className="text-white text-[14px] font-light" style={{ fontFamily: "'Crimson Pro', serif" }}>Microsoft Entra ID (Azure AD)</p>
+                    <p className="text-white/35 text-[10px] font-mono">Connexion via votre compte Microsoft 365 organisationnel</p>
+                  </div>
+                  <div className="space-y-2 px-3 py-3 bg-white/4 border border-white/8 rounded-[3px]">
+                    <p className="text-white/40 text-[9px] font-mono uppercase tracking-widest mb-2">Protocoles supportés</p>
+                    {["OpenID Connect (OIDC)", "OAuth 2.0 Authorization Code + PKCE", "Microsoft Graph API access", "Conditional Access & MFA supporté"].map((s, i) => (
+                      <p key={i} className="text-white/40 text-[10px] font-mono flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#00A4EF] inline-block shrink-0" />{s}
+                      </p>
+                    ))}
+                  </div>
+                  <button onClick={() => simulateOAuth("Microsoft")}
+                    className="w-full py-3.5 text-sm font-mono font-semibold rounded-[3px] flex items-center justify-center gap-2.5 transition-all border border-white/15 bg-white/6 hover:bg-white text-white hover:text-[#1A1A1A]">
+                    <svg viewBox="0 0 21 21" className="w-4 h-4"><rect x="0" y="0" width="10" height="10" fill="#F25022"/><rect x="11" y="0" width="10" height="10" fill="#7FBA00"/><rect x="0" y="11" width="10" height="10" fill="#00A4EF"/><rect x="11" y="11" width="10" height="10" fill="#FFB900"/></svg>
+                    Continuer avec Microsoft
+                  </button>
+                </>
+              )}
+              {(ssoStep === "redirect" || ssoStep === "callback") && (
+                <div className="text-center py-10 space-y-4">
+                  {ssoStep === "redirect" && <>
+                    <div className="w-12 h-12 rounded-full border-2 border-[#00A4EF]/30 border-t-[#00A4EF] animate-spin mx-auto" />
+                    <p className="text-white/50 text-[12px] font-mono">Redirection vers Microsoft…</p>
+                    <p className="text-white/25 text-[10px] font-mono">login.microsoftonline.com</p>
+                  </>}
+                  {ssoStep === "callback" && <>
+                    <div className="w-12 h-12 rounded-full bg-[#00A4EF]/15 border border-[#00A4EF]/30 flex items-center justify-center mx-auto">
+                      <CheckCircle2 size={24} className="text-[#00A4EF]" />
+                    </div>
+                    <p className="text-white text-[13px] font-mono">Compte Microsoft vérifié</p>
+                    <p className="text-white/30 text-[10px] font-mono">Résolution du workspace en cours…</p>
+                  </>}
+                </div>
+              )}
+            </div>
+          )}
 
-            <button type="submit" disabled={loading}
-              className="w-full py-3.5 text-sm font-mono font-semibold rounded-[3px] flex items-center justify-center gap-2 transition-all hover:opacity-90 disabled:opacity-60"
-              style={{ background: "linear-gradient(135deg, #1B3A6B 0%, #0E1F3D 100%)", color: "white" }}>
-              {loading
-                ? <><span className="animate-spin inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full" /> Connexion…</>
-                : <>Accéder au workspace <ChevronRight size={14} /></>}
-            </button>
-          </form>
+          {/* ── SAML SSO ── */}
+          {method === "saml" && (
+            <div className="space-y-4">
+              {samlStep === "idle" && (
+                <>
+                  <div className="text-center py-2 space-y-1.5">
+                    <div className="w-14 h-14 rounded-full bg-[#1B3A6B]/20 border border-[#1B3A6B]/30 flex items-center justify-center mx-auto">
+                      <svg viewBox="0 0 24 24" className="w-6 h-6" fill="none"><rect x="2" y="8" width="20" height="11" rx="2" stroke="white" strokeWidth="1.5" strokeOpacity="0.7"/><circle cx="8" cy="13.5" r="2" fill="white" fillOpacity="0.7"/><path d="M11 13.5h7" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeOpacity="0.7"/><path d="M8 8V6a4 4 0 018 0v2" stroke="white" strokeWidth="1.5" strokeOpacity="0.7"/></svg>
+                    </div>
+                    <p className="text-white text-[14px] font-light" style={{ fontFamily: "'Crimson Pro', serif" }}>SSO entreprise (SAML 2.0)</p>
+                    <p className="text-white/35 text-[10px] font-mono">Compatible : Okta, Auth0, Ping Identity, ADFS, Shibboleth</p>
+                  </div>
+                  <form onSubmit={handleSaml} className="space-y-3">
+                    <div>
+                      <label className="block text-[10px] font-mono uppercase tracking-widest text-white/45 mb-1.5">Domaine organisationnel *</label>
+                      <div className="flex gap-2">
+                        <span className="flex items-center px-3 bg-[#0F1929] border border-white/12 border-r-0 rounded-l-[3px] text-white/30 text-sm font-mono">@</span>
+                        <input className="flex-1 px-3.5 py-2.5 text-sm bg-[#0F1929] border border-white/12 rounded-r-[3px] text-white placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-[#1B3A6B]/60 font-mono transition-colors"
+                          value={samlDomain} onChange={e => setSamlDomain(e.target.value)}
+                          placeholder="mairie-conakry.gn" autoFocus required />
+                      </div>
+                      <p className="text-white/25 text-[9px] font-mono mt-1">Nous détecterons automatiquement votre fournisseur d{"'"}identité (IdP)</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 py-2">
+                      {[
+                        { name: "Okta", color: "#009FDE" },
+                        { name: "Auth0", color: "#EB5424" },
+                        { name: "Ping", color: "#0033A0" },
+                        { name: "ADFS", color: "#00A4EF" },
+                      ].map(idp => (
+                        <div key={idp.name} className="flex items-center gap-2 px-2.5 py-2 bg-white/3 border border-white/6 rounded-[3px]">
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ background: idp.color }} />
+                          <span className="text-white/35 text-[10px] font-mono">{idp.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <button type="submit"
+                      className="w-full py-3.5 text-sm font-mono font-semibold rounded-[3px] flex items-center justify-center gap-2 transition-all hover:opacity-90"
+                      style={{ background: "linear-gradient(135deg, #1B3A6B 0%, #0E1F3D 100%)", color: "white" }}>
+                      Détecter mon IdP <ArrowRight size={14} />
+                    </button>
+                  </form>
+                </>
+              )}
+              {samlStep === "lookup" && (
+                <div className="text-center py-10 space-y-4">
+                  <div className="w-12 h-12 rounded-full border-2 border-[#1B3A6B]/30 border-t-white/60 animate-spin mx-auto" />
+                  <p className="text-white/50 text-[12px] font-mono">Recherche du fournisseur IdP…</p>
+                  <p className="text-white/25 text-[10px] font-mono">{samlDomain}</p>
+                </div>
+              )}
+              {samlStep === "redirect" && (
+                <div className="text-center py-10 space-y-3">
+                  <div className="w-12 h-12 rounded-full bg-[#1B3A6B]/15 border border-[#1B3A6B]/30 flex items-center justify-center mx-auto">
+                    <CheckCircle2 size={24} className="text-[#009460]" />
+                  </div>
+                  <p className="text-white text-[13px] font-mono">IdP SAML détecté</p>
+                  <p className="text-white/40 text-[11px] font-mono">Redirection vers votre fournisseur d{"'"}identité…</p>
+                  <p className="text-white/25 text-[10px] font-mono">idp.{samlDomain}/saml/sso</p>
+                </div>
+              )}
+            </div>
+          )}
 
-          {/* Hint */}
-          <div className="border-t border-white/6 pt-4 space-y-1.5">
-            <p className="text-[10px] font-mono text-white/20 text-center">
-              Commune : <span className="text-white/40">admin@</span><span className="text-[#FCD116]/50">commune</span><span className="text-white/40">.gn</span>
-              &nbsp;·&nbsp; {COMMUNES_GUINEE.length} espaces actifs
+          {/* Footer hint */}
+          <div className="border-t border-white/6 pt-3">
+            <p className="text-[9px] font-mono text-white/18 text-center">
+              {COMMUNES_GUINEE.filter(c => c.type === "commune").length} communes · {COMMUNES_GUINEE.filter(c => c.type === "prefecture").length} préfectures · TLS 1.3 · SOC 2 Type II
             </p>
-            <p className="text-[9px] font-mono text-white/12 text-center">Accès administrateur plateforme via identifiant dédié</p>
           </div>
         </div>
       </div>
@@ -1643,7 +1899,33 @@ export function SaasLanding({ onEnterApp, onSuperAdmin }: {
   const scrollTo = (id: string) => { document.getElementById(id)?.scrollIntoView({ behavior: "smooth" }); setMobileMenu(false); };
 
   return (
-    <div className="min-h-screen bg-[#EBF4EC] text-[#111827] overflow-x-hidden">
+    <div className="min-h-screen text-[#111827] overflow-x-hidden relative"
+      style={{
+        background: `
+          radial-gradient(ellipse 90% 55% at 0% 0%, rgba(206,17,38,0.10) 0%, transparent 65%),
+          radial-gradient(ellipse 70% 45% at 100% 0%, rgba(252,209,22,0.13) 0%, transparent 60%),
+          radial-gradient(ellipse 80% 50% at 50% 100%, rgba(0,148,96,0.11) 0%, transparent 65%),
+          radial-gradient(ellipse 50% 35% at 100% 55%, rgba(0,148,96,0.06) 0%, transparent 55%),
+          radial-gradient(ellipse 45% 30% at 0% 65%, rgba(206,17,38,0.05) 0%, transparent 55%),
+          linear-gradient(160deg, #FDF8F7 0%, #FAFCF8 40%, #F6FBF7 70%, #F8FBF5 100%)
+        `
+      }}>
+      {/* Decorative blobs — pointer-events-none, z-0 */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden" style={{ zIndex: 0 }}>
+        <div className="absolute -top-24 -left-24 w-[480px] h-[480px] rounded-full opacity-[0.18]"
+          style={{ background: "radial-gradient(circle, #CE1126 0%, transparent 70%)", filter: "blur(80px)" }} />
+        <div className="absolute -top-16 right-0 w-[420px] h-[380px] rounded-full opacity-[0.16]"
+          style={{ background: "radial-gradient(circle, #FCD116 0%, transparent 70%)", filter: "blur(90px)" }} />
+        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[600px] h-[320px] rounded-full opacity-[0.15]"
+          style={{ background: "radial-gradient(circle, #009460 0%, transparent 70%)", filter: "blur(100px)" }} />
+        <div className="absolute top-1/2 -right-20 w-[300px] h-[300px] rounded-full opacity-[0.09]"
+          style={{ background: "radial-gradient(circle, #009460 0%, transparent 70%)", filter: "blur(70px)" }} />
+        <div className="absolute top-2/3 -left-16 w-[280px] h-[280px] rounded-full opacity-[0.07]"
+          style={{ background: "radial-gradient(circle, #CE1126 0%, transparent 70%)", filter: "blur(70px)" }} />
+      </div>
+
+      {/* All content above blobs */}
+      <div className="relative" style={{ zIndex: 1 }}>
       {/* Modals */}
       {showTrial && <TrialModal t={tr} onClose={() => setShowTrial(false)} onSuccess={(t) => { setShowTrial(false); onEnterApp(t); }} />}
       {showLogin && <LoginModal t={tr} onClose={() => setShowLogin(false)} onSuccess={(t) => { setShowLogin(false); onEnterApp(t); }} onSuperAdmin={() => { setShowLogin(false); onSuperAdmin(); }} />}
@@ -1658,7 +1940,8 @@ export function SaasLanding({ onEnterApp, onSuperAdmin }: {
       )}
 
       {/* ── NAVBAR ─────────────────────────────────────────────────────────────── */}
-      <nav className={`fixed top-0 left-0 right-0 z-40 transition-all duration-300 ${scrolled ? "bg-[#EBF4EC]/97 backdrop-blur border-b border-[#111827]/10 shadow-sm" : "bg-transparent"}`}>
+      <nav className={`fixed top-0 left-0 right-0 z-40 transition-all duration-300 ${scrolled ? "backdrop-blur-xl border-b border-[#111827]/10 shadow-sm" : "bg-transparent"}`}
+        style={scrolled ? { background: "rgba(253,248,247,0.92)" } : undefined}>
         {/* Flag strip */}
         <div className="h-[2px] flex">
           <div className="flex-1 bg-[#CE1126]" /><div className="flex-1 bg-[#FCD116]" /><div className="flex-1 bg-[#009460]" />
@@ -1827,6 +2110,106 @@ export function SaasLanding({ onEnterApp, onSuperAdmin }: {
         </div>
       </section>
 
+      {/* ── PARTNERS ───────────────────────────────────────────────────────────── */}
+      <section className="py-14 px-6 border-y border-[#111827]/6">
+        <div className="max-w-5xl mx-auto">
+          <p className="text-center text-[10px] font-mono uppercase tracking-widest text-[#111827]/35 mb-10">Partenaires institutionnels &amp; techniques</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 items-center">
+
+            {/* MATD */}
+            <div className="flex flex-col items-center gap-3 p-5 rounded-[4px] bg-white/60 border border-[#111827]/8 hover:border-[#111827]/18 hover:shadow-sm transition-all group">
+              <svg viewBox="0 0 80 80" className="w-16 h-16" fill="none">
+                {/* Shield shape */}
+                <path d="M40 6L12 18v22c0 16 12 28 28 34 16-6 28-18 28-34V18L40 6z" fill="#CE1126" opacity="0.08" />
+                <path d="M40 6L12 18v22c0 16 12 28 28 34 16-6 28-18 28-34V18L40 6z" stroke="#CE1126" strokeWidth="1.5" fill="none" opacity="0.4" />
+                {/* Guinea tricolor horizontal bands inside shield */}
+                <clipPath id="shield-clip">
+                  <path d="M40 10L16 21v19c0 13.5 10 23.5 24 29 14-5.5 24-15.5 24-29V21L40 10z" />
+                </clipPath>
+                <g clipPath="url(#shield-clip)">
+                  <rect x="16" y="10" width="48" height="13" fill="#CE1126" opacity="0.85" />
+                  <rect x="16" y="23" width="48" height="13" fill="#FCD116" opacity="0.85" />
+                  <rect x="16" y="36" width="48" height="33" fill="#009460" opacity="0.85" />
+                </g>
+                {/* Star */}
+                <polygon points="40,25 41.8,30.5 47.5,30.5 43,33.8 44.8,39.3 40,36 35.2,39.3 37,33.8 32.5,30.5 38.2,30.5" fill="white" opacity="0.95" />
+                {/* Text */}
+                <text x="40" y="72" textAnchor="middle" fontSize="7.5" fontWeight="700" fontFamily="monospace" fill="#CE1126" letterSpacing="1" opacity="0.9">MATD</text>
+              </svg>
+              <div className="text-center">
+                <p className="text-[11px] font-semibold text-[#111827] leading-tight">Ministère ATD</p>
+                <p className="text-[9px] font-mono text-[#111827]/40 mt-0.5 leading-snug">Administration du Territoire<br />et Décentralisation</p>
+              </div>
+            </div>
+
+            {/* ANAFIC */}
+            <div className="flex flex-col items-center gap-3 p-5 rounded-[4px] bg-white/60 border border-[#111827]/8 hover:border-[#111827]/18 hover:shadow-sm transition-all group">
+              <svg viewBox="0 0 80 80" className="w-16 h-16" fill="none">
+                {/* Hexagonal building icon */}
+                <circle cx="40" cy="38" r="26" fill="#009460" opacity="0.09" />
+                <circle cx="40" cy="38" r="26" stroke="#009460" strokeWidth="1.5" opacity="0.35" />
+                {/* Building */}
+                <rect x="24" y="46" width="32" height="14" rx="1" fill="#009460" opacity="0.7" />
+                <path d="M22 46L40 28l18 18H22z" fill="#009460" opacity="0.85" />
+                {/* Windows */}
+                <rect x="29" y="49" width="5" height="5" rx="0.5" fill="white" opacity="0.8" />
+                <rect x="37.5" y="49" width="5" height="5" rx="0.5" fill="white" opacity="0.8" />
+                <rect x="46" y="49" width="5" height="5" rx="0.5" fill="white" opacity="0.8" />
+                {/* Coins/money below */}
+                <ellipse cx="40" cy="62" rx="7" ry="2" fill="#FCD116" opacity="0.7" />
+                <text x="40" y="74" textAnchor="middle" fontSize="7" fontWeight="700" fontFamily="monospace" fill="#009460" letterSpacing="0.5" opacity="0.9">ANAFIC</text>
+              </svg>
+              <div className="text-center">
+                <p className="text-[11px] font-semibold text-[#111827] leading-tight">ANAFIC</p>
+                <p className="text-[9px] font-mono text-[#111827]/40 mt-0.5 leading-snug">Agence Nationale de<br />Financement des Collectivités</p>
+              </div>
+            </div>
+
+            {/* BAD — Banque Africaine de Développement */}
+            <div className="flex flex-col items-center gap-3 p-5 rounded-[4px] bg-white/60 border border-[#111827]/8 hover:border-[#111827]/18 hover:shadow-sm transition-all group">
+              <svg viewBox="0 0 80 80" className="w-16 h-16" fill="none">
+                {/* AfDB arc */}
+                <path d="M14 52 A28 28 0 0 1 66 52" stroke="#006B3C" strokeWidth="3.5" strokeLinecap="round" opacity="0.9" />
+                <path d="M20 44 A22 22 0 0 1 60 44" stroke="#006B3C" strokeWidth="2.5" strokeLinecap="round" opacity="0.55" />
+                <path d="M26 37 A16 16 0 0 1 54 37" stroke="#006B3C" strokeWidth="1.5" strokeLinecap="round" opacity="0.3" />
+                {/* B letter stylized */}
+                <text x="40" y="55" textAnchor="middle" fontSize="20" fontWeight="900" fontFamily="Georgia, serif" fill="#006B3C" opacity="0.9">BAD</text>
+                {/* Stars */}
+                {[0,1,2,3,4].map(i => (
+                  <circle key={i} cx={16 + i * 12} cy="62" r="2" fill="#FCD116" opacity="0.85" />
+                ))}
+                <text x="40" y="76" textAnchor="middle" fontSize="5.5" fontWeight="600" fontFamily="monospace" fill="#006B3C" letterSpacing="0.3" opacity="0.7">BANQUE AFRICAINE DE DÉVELOPPEMENT</text>
+              </svg>
+              <div className="text-center">
+                <p className="text-[11px] font-semibold text-[#111827] leading-tight">BAD / AfDB</p>
+                <p className="text-[9px] font-mono text-[#111827]/40 mt-0.5 leading-snug">Banque Africaine<br />de Développement</p>
+              </div>
+            </div>
+
+            {/* Orange Guinée */}
+            <div className="flex flex-col items-center gap-3 p-5 rounded-[4px] bg-white/60 border border-[#111827]/8 hover:border-[#111827]/18 hover:shadow-sm transition-all group">
+              <svg viewBox="0 0 80 80" className="w-16 h-16" fill="none">
+                {/* Orange circle — brand mark */}
+                <circle cx="40" cy="36" r="24" fill="#FF6600" />
+                <circle cx="40" cy="36" r="17" fill="white" />
+                <circle cx="40" cy="36" r="11" fill="#FF6600" />
+                {/* Signal waves */}
+                <path d="M26 20 A20 20 0 0 1 54 20" stroke="#FF6600" strokeWidth="2" strokeLinecap="round" opacity="0.3" fill="none" />
+                <path d="M22 16 A25 25 0 0 1 58 16" stroke="#FF6600" strokeWidth="1.5" strokeLinecap="round" opacity="0.15" fill="none" />
+                {/* Text */}
+                <text x="40" y="70" textAnchor="middle" fontSize="9" fontWeight="800" fontFamily="Arial, sans-serif" fill="#FF6600" letterSpacing="-0.3">orange</text>
+                <text x="40" y="79" textAnchor="middle" fontSize="6" fontWeight="600" fontFamily="monospace" fill="#111827" opacity="0.45" letterSpacing="0.5">GUINÉE</text>
+              </svg>
+              <div className="text-center">
+                <p className="text-[11px] font-semibold text-[#111827] leading-tight">Orange Guinée</p>
+                <p className="text-[9px] font-mono text-[#111827]/40 mt-0.5 leading-snug">Partenaire Mobile Money<br />&amp; Infrastructure</p>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
       {/* ── FEATURES ───────────────────────────────────────────────────────────── */}
       <section id="features" className="py-20 px-6">
         <div className="max-w-6xl mx-auto">
@@ -1945,6 +2328,7 @@ export function SaasLanding({ onEnterApp, onSuperAdmin }: {
           © {new Date().getFullYear()} {tr.footer.copy}
         </div>
       </footer>
+      </div>{/* /relative content wrapper */}
     </div>
   );
 }

@@ -108,11 +108,15 @@ const inputCls = "w-full px-3 py-2.5 text-base sm:text-sm bg-white/8 border bord
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export function LoginPage({ onLogin, utilisateurs: utilisateursProp }: {
+export function LoginPage({ onLogin, utilisateurs: utilisateursProp, commune, communeId }: {
   onLogin: (user: Utilisateur) => void;
   utilisateurs?: Utilisateur[];
+  commune?: string;
+  communeId?: string;
 }) {
   const utilisateurs = utilisateursProp ?? UTILISATEURS_FALLBACK;
+  const communeName   = commune   ?? "Mamou";
+  const communeDomain = communeId ? `${communeId}.gn` : "mamou-commune.gn";
 
   // Login state
   const [email, setEmail] = useState("");
@@ -196,11 +200,23 @@ export function LoginPage({ onLogin, utilisateurs: utilisateursProp }: {
     setLoading(true);
     setTimeout(() => {
       const input = email.trim().toLowerCase();
+      // Accept commune admin shortcut: admin@{domain} or "admin" with password admin@123
+      const isWorkspaceAdmin = input === `admin@${communeDomain}` || input === "admin";
+      if (isWorkspaceAdmin && (password === "admin@123" || password === "snrr2024")) {
+        const adminUser = utilisateurs.find(u => u.role === "Administrateur" && u.statut === "Actif") ?? {
+          id: "USR-000", nom: "Admin", prenom: "Système", role: "Administrateur",
+          email: `admin@${communeDomain}`, telephone: "+224 620 00 00 00",
+          derniere: new Date().toLocaleString("fr-FR"), statut: "Actif",
+          dateCreation: "2024-01-01", identifiant: "admin",
+        };
+        onLogin(adminUser);
+        return;
+      }
       const user = utilisateurs.find(u =>
         u.statut === "Actif" && (u.identifiant?.toLowerCase() === input || u.email.toLowerCase() === input)
       );
       if (!user) { setError("Identifiant ou email non reconnu, ou compte inactif."); setLoading(false); return; }
-      if (password === "snrr2024" || password.length >= 4) onLogin(user);
+      if (password === "admin@123" || password === "snrr2024" || password.length >= 4) onLogin(user);
       else { setError("Mot de passe incorrect. Veuillez réessayer."); setLoading(false); }
     }, 1200);
   };
@@ -245,9 +261,9 @@ export function LoginPage({ onLogin, utilisateurs: utilisateursProp }: {
             <img src={logoImg} alt="Blason" className="w-12 h-12 object-contain drop-shadow-lg shrink-0" />
             <div>
               <p className="text-white font-semibold text-[15px] leading-tight tracking-tight" style={{ fontFamily: "'Crimson Pro', serif" }}>
-                PLATFORM SNRR
+                {communeName}
               </p>
-              <p className="text-[#FCD116] text-[9px] font-mono uppercase tracking-[0.22em] opacity-80">SIMANDOU 2040</p>
+              <p className="text-[#FCD116] text-[9px] font-mono uppercase tracking-[0.22em] opacity-80">PLATFORM SNRR · SIMANDOU 2040</p>
             </div>
             <div className={`ml-auto flex items-center gap-1.5 text-[10px] font-mono px-2.5 py-1 rounded-full border shrink-0 ${isOnline ? "border-[#009460]/30 text-[#009460] bg-[#009460]/10" : "border-red-500/30 text-red-400 bg-red-500/10"}`}>
               {isOnline ? <Wifi size={9} /> : <WifiOff size={9} />}
@@ -288,7 +304,7 @@ export function LoginPage({ onLogin, utilisateurs: utilisateursProp }: {
                       <div className="relative">
                         <Mail size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/35" />
                         <input type="email" inputMode="email" className={`${inputCls} pl-9`} value={resetEmail}
-                          onChange={e => setResetEmail(e.target.value)} placeholder="votre.email@mamou-commune.gn" autoFocus />
+                          onChange={e => setResetEmail(e.target.value)} placeholder={`votre.email@${communeDomain}`} autoFocus />
                       </div>
                     </Field>
                     {error && <p className="flex items-start gap-2 p-3 bg-red-500/10 border border-red-500/25 rounded-[3px] text-[11px] text-red-400 font-mono"><AlertTriangle size={11} className="shrink-0 mt-0.5" /> {error}</p>}
@@ -307,8 +323,16 @@ export function LoginPage({ onLogin, utilisateurs: utilisateursProp }: {
               /* ── Login form ── */
               <div className="space-y-7">
                 <div>
-                  <h2 className="text-white text-4xl font-light leading-none mb-2" style={{ fontFamily: "'Crimson Pro', serif" }}>Connexion</h2>
-                  <p className="text-white/35 text-[11px] font-mono uppercase tracking-widest">Accès sécurisé · Agents autorisés</p>
+                  <h2 className="text-white text-4xl font-light leading-none mb-1" style={{ fontFamily: "'Crimson Pro', serif" }}>Connexion</h2>
+                  <p className="text-white/35 text-[11px] font-mono uppercase tracking-widest">Espace de travail · {communeName}</p>
+                </div>
+
+                {/* Credential hint badge */}
+                <div className="flex items-center gap-2 px-3 py-2 rounded-sm bg-[#B8860B]/15 border border-[#B8860B]/25 text-[10px] font-mono text-[#E8A820]">
+                  <span className="opacity-60">Accès admin :</span>
+                  <span>admin@{communeDomain}</span>
+                  <span className="opacity-40">·</span>
+                  <span>admin@123</span>
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
@@ -318,7 +342,7 @@ export function LoginPage({ onLogin, utilisateurs: utilisateursProp }: {
                       <input
                         type="text" inputMode="email" autoCapitalize="none" autoCorrect="off" spellCheck={false}
                         className={`${inputCls} pl-9`} value={email} onChange={e => setEmail(e.target.value)}
-                        placeholder="admin ou email@mamou-commune.gn" autoComplete="username"
+                        placeholder={`admin@${communeDomain}`} autoComplete="username"
                       />
                     </div>
                   </Field>
