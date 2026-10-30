@@ -1,4 +1,4 @@
-# SNRR-Mamou — Système National de Recensement et de Recouvrement
+# SNRR — Système National de Recensement et de Recouvrement
 
 Plateforme web d'administration fiscale municipale pour la commune de Mamou en Guinée.
 
